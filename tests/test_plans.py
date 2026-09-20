@@ -74,7 +74,7 @@ async def test_create_plan_success(client: AsyncClient, admin_user: User):
             "export_enabled": True,
             "stage_rerun": 5,
             "survey_analytics": "Advanced",
-            "storage": 2000,
+            "storage_limit": 2000,
         },
     )
     assert response.status_code == status.HTTP_201_CREATED
@@ -83,7 +83,7 @@ async def test_create_plan_success(client: AsyncClient, admin_user: User):
     assert data["workspace_limit"] == 3
     assert data["stage_rerun"] == 5
     assert data["survey_analytics"] == "Advanced"
-    assert data["storage"] == 2000
+    assert data["storage_limit"] == 2000
     assert data["is_active"] is True
 
 
@@ -97,7 +97,7 @@ async def test_create_plan_defaults(client: AsyncClient, admin_user: User):
     assert response.status_code == status.HTTP_201_CREATED
     data = response.json()
     assert data["survey_analytics"] == "Basic"
-    assert data["storage"] is None
+    assert data["storage_limit"] is None
 
 
 @pytest.mark.asyncio
@@ -193,7 +193,7 @@ async def test_update_plan_fields(
             "price_monthly": 499,
             "survey_response_cap": 1000,
             "survey_analytics": "Advanced",
-            "storage": 500,
+            "storage_limit": 500,
             "stage_rerun": 10,
         },
     )
@@ -202,7 +202,7 @@ async def test_update_plan_fields(
     assert data["price_monthly"] == 499
     assert data["survey_response_cap"] == 1000
     assert data["survey_analytics"] == "Advanced"
-    assert data["storage"] == 500
+    assert data["storage_limit"] == 500
     assert data["stage_rerun"] == 10
 
 

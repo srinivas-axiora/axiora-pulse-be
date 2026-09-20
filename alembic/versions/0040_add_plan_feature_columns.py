@@ -1,14 +1,14 @@
-"""Add stage_rerun / survey_analytics / storage to plans, with per-plan seed values.
+"""Add stage_rerun / survey_analytics / storage_limit to plans, with per-plan seed values.
 
 Extends the per-plan feature surface for the admin Plans management endpoints:
 - stage_rerun ── integer cap for stage re-runs; NULL = not allowed / unlimited.
 - survey_analytics ── analytics depth tier, one of Basic | Advanced (defaults Basic).
-- storage ── storage allowance in MB; NULL = not enforced.
+- storage_limit ── storage allowance in MB; NULL = not enforced.
 
 The per-plan values are seeded here (keyed by plan code) so every environment
 that reaches `upgrade head` gets identical, reproducible data:
 
-  code      stage_rerun  survey_analytics  storage
+  code      stage_rerun  survey_analytics  storage_limit
   starter   1            Basic                200
   builder   3            Advanced             500
   pro       5            Advanced            2000
@@ -48,7 +48,7 @@ def upgrade() -> None:
     )
     op.add_column(
         "plans",
-        sa.Column("storage", sa.Integer(), nullable=True),
+        sa.Column("storage_limit", sa.Integer(), nullable=True),
     )
     op.create_check_constraint(
         "ck_plans_survey_analytics",
@@ -62,7 +62,7 @@ def upgrade() -> None:
         UPDATE plans SET
             stage_rerun = 1,
             survey_analytics = 'Basic',
-            storage = 200
+            storage_limit = 200
         WHERE code = 'starter'
         """
     )
@@ -71,7 +71,7 @@ def upgrade() -> None:
         UPDATE plans SET
             stage_rerun = 3,
             survey_analytics = 'Advanced',
-            storage = 500
+            storage_limit = 500
         WHERE code = 'builder'
         """
     )
@@ -80,7 +80,7 @@ def upgrade() -> None:
         UPDATE plans SET
             stage_rerun = 5,
             survey_analytics = 'Advanced',
-            storage = 2000
+            storage_limit = 2000
         WHERE code = 'pro'
         """
     )
@@ -90,4 +90,4 @@ def downgrade() -> None:
     op.drop_constraint("ck_plans_survey_analytics", "plans", type_="check")
     op.drop_column("plans", "survey_analytics")
     op.drop_column("plans", "stage_rerun")
-    op.drop_column("plans", "storage")
+    op.drop_column("plans", "storage_limit")

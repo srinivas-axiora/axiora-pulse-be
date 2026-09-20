@@ -696,7 +696,7 @@ class Plan(Base):
     survey_analytics: Mapped[str] = mapped_column(
         String(20), nullable=False, default="Basic", server_default="Basic"
     )  # Basic | Advanced
-    storage: Mapped[int | None] = mapped_column(Integer, nullable=True)  # storage allowance in MB; NULL = not enforced
+    storage_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)  # storage allowance in MB; NULL = not enforced
 
     popular: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")  # highlight in UI
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")

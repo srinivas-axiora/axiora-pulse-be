@@ -59,7 +59,7 @@ class PlanService:
             export_enabled=payload.export_enabled,
             stage_rerun=payload.stage_rerun,
             survey_analytics=payload.survey_analytics,
-            storage=payload.storage,
+            storage_limit=payload.storage_limit,
             popular=payload.popular,
             is_active=payload.is_active,
             created_at=now,
