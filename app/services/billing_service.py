@@ -20,7 +20,18 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Payment, Plan, Role, Subscription, User, WebhookEvent, Workspace
+from app.db.models import (
+    Payment,
+    Plan,
+    PublicSurveyResponse,
+    Role,
+    Subscription,
+    Survey,
+    User,
+    WebhookEvent,
+    Workspace,
+    WorkspaceAttachment,
+)
 from app.models.billing_models import (
     AccountStatusOut,
     AllowanceOut,
@@ -498,8 +509,19 @@ class BillingService:
         row = await entitlements_service.get(user.id, db)
         return entitlements_service.is_trial_active(row)
 
+    async def _plan_by_code(self, db: AsyncSession, code: str) -> Plan | None:
+        return (
+            await db.execute(select(Plan).where(Plan.code == code))
+        ).scalars().first()
+
     async def get_account_status(self, user: User, db: AsyncSession) -> AccountStatusOut:
-        """Current plan + access status for the profile 'My Plan' view."""
+        """Current plan + access status for the profile 'My Plan' view.
+
+        Returns every piece of present data (plan catalog detail, subscription
+        billing info and usage counters we can compute). Untracked usage —
+        regenerations / stage re-runs / report exports used — is left out rather
+        than returned as meaningless zeroes; the route drops None fields.
+        """
         from app.services.entitlements_service import (
             FREE_RESPONSES,
             FREE_WORKSPACES,
@@ -515,6 +537,23 @@ class BillingService:
         allowed_workspaces = row.allowed_workspaces if row else FREE_WORKSPACES
         allowed_responses = row.allowed_responses if row else FREE_RESPONSES
 
+        used_responses = (
+            await db.execute(
+                select(func.count(PublicSurveyResponse.id))
+                .join(Survey, Survey.id == PublicSurveyResponse.survey_id)
+                .where(Survey.user_id == user.id)
+            )
+        ).scalar_one()
+
+        storage_bytes = (
+            await db.execute(
+                select(func.coalesce(func.sum(WorkspaceAttachment.file_size_bytes), 0)).where(
+                    WorkspaceAttachment.user_id == user.id
+                )
+            )
+        ).scalar_one()
+        storage_used_mb = int(storage_bytes // (1024 * 1024))
+
         paid_sub = (
             await db.execute(
                 select(Subscription)
@@ -523,6 +562,7 @@ class BillingService:
             )
         ).scalars().first()
 
+        plan: Plan | None = None
         if paid_sub is not None:
             plan = (
                 await db.execute(select(Plan).where(Plan.id == paid_sub.plan_id))
@@ -536,14 +576,33 @@ class BillingService:
         else:
             status_, code, name, trial_ends = "none", None, None, None
 
+        if plan is None and code == "starter":
+            plan = await self._plan_by_code(db, "starter")
+
         return AccountStatusOut(
             plan=code,
             planName=name,
             status=status_,
             trialEndsAt=trial_ends,
+            currentEnd=paid_sub.current_end if paid_sub else None,
+            billingPeriod=paid_sub.billing_period if paid_sub else None,
+            cancelAtPeriodEnd=paid_sub.cancel_at_period_end if paid_sub else False,
+            priceMonthly=plan.price_monthly if plan else None,
+            priceYearly=plan.price_yearly if plan else None,
+            currency=plan.currency if plan else None,
+            features=list(plan.features) if plan else None,
+            workspaceLimit=plan.workspace_limit if plan else None,
+            responseCap=plan.survey_response_cap if plan else None,
+            storageLimitMB=plan.storage_limit if plan else None,
+            regenerationLimit=plan.regeneration_limit if plan else None,
+            stageRerun=plan.stage_rerun if plan else None,
+            exportEnabled=plan.export_enabled if plan else None,
+            surveyAnalytics=plan.survey_analytics if plan else None,
             allowedWorkspaces=allowed_workspaces,
             usedWorkspaces=used_workspaces,
             allowedResponses=allowed_responses,
+            usedResponses=used_responses,
+            storageUsedMB=storage_used_mb,
         )
 
     # ── Per-plan quota limits (entitlement layer) ──────────────────────────────

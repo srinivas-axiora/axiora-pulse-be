@@ -60,14 +60,39 @@ class AllowanceOut(BaseModel):
 
 
 class AccountStatusOut(BaseModel):
-    """The user's current plan + access status, for the profile 'My Plan' view."""
+    """The user's current plan + access status, for the profile 'My Plan' / settings view.
+
+    Only fields with data are serialized (the route uses ``response_model_exclude_none``),
+    so e.g. a user without a paid subscription gets no ``priceMonthly`` key. The usage
+    "used" counters cover what is actually tracked today:
+      - workspaces & survey responses (DB counts),
+      - attachments storage (summed file sizes, in MB).
+    Regeneration / stage-rerun / report usage is not recorded yet, so only the plan
+    limits are returned for those.
+    """
     plan: Optional[str] = Field(None, description="Current plan code (starter|builder|pro); null if none")
     planName: Optional[str] = Field(None, description="Human plan name, e.g. 'Builder'")
     status: str = Field(..., description="active (paid) | trial | expired | none")
     trialEndsAt: Optional[datetime] = Field(None, description="Free-trial end (only when status='trial')")
+    currentEnd: Optional[datetime] = Field(None, description="Billing period end of the active subscription")
+    billingPeriod: Optional[str] = Field(None, description="monthly | yearly")
+    cancelAtPeriodEnd: bool = Field(False, description="True when the subscription is set to cancel at period end")
+    priceMonthly: Optional[int] = Field(None, description="Monthly price of the current plan in whole rupees")
+    priceYearly: Optional[int] = Field(None, description="Yearly price of the current plan in whole rupees")
+    currency: Optional[str] = Field(None, description="Plan currency, e.g. 'INR'")
+    features: Optional[List[str]] = Field(None, description="Feature list of the current plan (e.g. '3 Workspaces')")
+    workspaceLimit: Optional[int] = Field(None, description="Workspaces included in the plan")
+    responseCap: Optional[int] = Field(None, description="Survey responses included in the plan")
+    storageLimitMB: Optional[int] = Field(None, description="Storage allowance in MB")
+    regenerationLimit: Optional[int] = Field(None, description="Regeneration cap; omitted when not included")
+    stageRerun: Optional[int] = Field(None, description="Stage re-run cap; omitted when not included")
+    exportEnabled: Optional[bool] = Field(None, description="Whether the plan includes report export")
+    surveyAnalytics: Optional[str] = Field(None, description="Basic | Advanced analytics tier")
     allowedWorkspaces: int = Field(0, description="Total workspaces the user may create")
     usedWorkspaces: int = Field(0, description="Workspaces currently used (active + archived)")
     allowedResponses: int = Field(0, description="Total survey responses allowed across the account")
+    usedResponses: int = Field(0, description="Survey responses collected across the user's surveys")
+    storageUsedMB: int = Field(0, description="Attachment storage used, rounded up to MB")
 
 
 # ── Requests ────────────────────────────────────────────────────────────────────

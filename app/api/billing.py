@@ -88,6 +88,7 @@ async def subscribe(
 @router.get(
     "/status",
     response_model=AccountStatusEnvelope,
+    response_model_exclude_none=True,
     summary="Current plan + access status (for the profile 'My Plan' view)",
 )
 @limiter.limit("60/minute")

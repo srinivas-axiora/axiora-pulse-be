@@ -886,6 +886,54 @@ async def test_api_account_status_active_paid(client: AsyncClient, db_session: A
 
 
 @pytest.mark.asyncio
+async def test_api_account_status_active_paid_details(client: AsyncClient, db_session: AsyncSession):
+    user = await _create_user(db_session)
+    plan = await _create_plan(db_session, code="builder", tier=2)
+    plan.workspace_limit = 3
+    plan.survey_response_cap = 500
+    plan.storage_limit = 500
+    plan.regeneration_limit = 5
+    plan.stage_rerun = 3
+    plan.survey_analytics = "Advanced"
+    await _create_subscription(db_session, user, plan, status="active", rzp_sub_id="sub_status_dtl")
+    await db_session.commit()
+    authenticate_as(user)
+    resp = await client.get("/api/billing/status")
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["status"] == "active"
+    assert data["plan"] == "builder"
+    assert data["priceMonthly"] == 499
+    assert data["billingPeriod"] == "monthly"
+    assert data["features"] == ["a", "b"]
+    assert data["workspaceLimit"] == 3
+    assert data["responseCap"] == 500
+    assert data["storageLimitMB"] == 500
+    assert data["regenerationLimit"] == 5
+    assert data["stageRerun"] == 3
+    assert data["surveyAnalytics"] == "Advanced"
+    assert data["usedResponses"] == 0
+    assert data["storageUsedMB"] == 0
+    assert "trialEndsAt" not in data  # null fields are dropped
+
+
+@pytest.mark.asyncio
+async def test_api_account_status_none_excludes_missing(client: AsyncClient, db_session: AsyncSession):
+    user = await _create_user(db_session, role_name="viewer")
+    await db_session.commit()
+    authenticate_as(user)
+    resp = await client.get("/api/billing/status")
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["status"] == "none"
+    assert "priceMonthly" not in data
+    assert "features" not in data
+    assert "storageLimitMB" not in data
+    assert "currentEnd" not in data
+    assert data["usedResponses"] == 0
+
+
+@pytest.mark.asyncio
 async def test_api_account_status_none(client: AsyncClient, db_session: AsyncSession):
     user = await _create_user(db_session, role_name="viewer")
     await db_session.commit()
