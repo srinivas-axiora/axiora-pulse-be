@@ -238,6 +238,7 @@ from app.api.v1 import interactive_questionnaire as interactive_questionnaire_ro
 from app.api.v1 import questionnaire as questionnaire_router
 from app.api.v1 import feedback_questionnaire as feedback_questionnaire_router
 from app.api.v1 import user_feedback as user_feedback_router
+from app.api.v1 import plans as plans_router
 from app.api.v1 import orchestration as orchestration_router
 from app.api.v1 import workspace as workspace_router
 from app.api.v1 import surveys as surveys_router
@@ -253,6 +254,7 @@ app.include_router(questionnaire_router.router, prefix="/api/v1")
 app.include_router(feedback_questionnaire_router.admin_router, prefix="/api/v1")
 app.include_router(feedback_questionnaire_router.user_router, prefix="/api/v1")
 app.include_router(user_feedback_router.router, prefix="/api/v1")
+app.include_router(plans_router.router, prefix="/api/v1")
 app.include_router(orchestration_router.router, prefix="/api/v1")
 app.include_router(workspace_router.router, prefix="/api/v1/workspaces")
 app.include_router(workspace_router.router, prefix="/api/v1/workspace")

@@ -572,26 +572,30 @@ async def test_list_user_feedback_with_filters(
     db_session.add_all([
         UserFeedbackQuestionnaire(
             user_id=admin_user.id, workspace_id=workspace.id, questionnaire_id=q1.id,
-            user_answers=["Amazing product"], submission_date=datetime(2026, 1, 10),
+            user_answers=["Amazing product"], question_snapshot=q1.question,
+            submission_date=datetime(2026, 1, 10),
         ),
         UserFeedbackQuestionnaire(
             user_id=admin_user.id, workspace_id=workspace.id, questionnaire_id=q2.id,
-            user_answers=["Add dark mode"], submission_date=datetime(2026, 1, 15),
+            user_answers=["Add dark mode"], question_snapshot=q2.question,
+            submission_date=datetime(2026, 1, 15),
         ),
         UserFeedbackQuestionnaire(
             user_id=user_b.id, workspace_id=workspace.id, questionnaire_id=q1.id,
-            user_answers=["Needs improvement"], submission_date=datetime(2026, 2, 20),
+            user_answers=["Needs improvement"], question_snapshot=q1.question,
+            submission_date=datetime(2026, 2, 20),
         ),
     ])
     await db_session.commit()
 
     await _authenticate(admin_user)
 
-    # All
+    # All — total counts the number of USERS who submitted (2), while the listing
+    # still returns one row per answered question (3).
     response = await client.get("/api/v1/user-feedback")
     assert response.status_code == status.HTTP_200_OK
     data = response.json()
-    assert data["pagination"]["total"] == 3
+    assert data["pagination"]["total"] == 2
     assert len(data["feedback"]) == 3
 
     # Filter by user_id
@@ -611,16 +615,17 @@ async def test_list_user_feedback_with_filters(
     assert data["pagination"]["total"] == 1
     assert data["feedback"][0]["question"] == "Suggestion"
 
-    # Date range
+    # Date range — both January rows are from the SAME user, so total is 1 user.
     response = await client.get("/api/v1/user-feedback?date_from=2026-01-01T00:00:00&date_to=2026-01-31T00:00:00")
     data = response.json()
-    assert data["pagination"]["total"] == 2
+    assert data["pagination"]["total"] == 1
+    assert len(data["feedback"]) == 2
 
-    # Pagination
+    # Pagination — total is the distinct-user count, unaffected by limit/offset.
     response = await client.get("/api/v1/user-feedback?limit=2&offset=0")
     data = response.json()
     assert len(data["feedback"]) == 2
-    assert data["pagination"]["total"] == 3
+    assert data["pagination"]["total"] == 2
     assert data["pagination"]["limit"] == 2
     assert data["pagination"]["offset"] == 0
 
@@ -628,6 +633,52 @@ async def test_list_user_feedback_with_filters(
 # ──────────────────────────────────────────────────────────────────────────────
 # Service-level coverage
 # ──────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_admin_edit_keeps_historical_question_snapshot(
+    client: AsyncClient, admin_user: User, db_session: AsyncSession
+):
+    q = await seed_feedback_question(
+        db_session, question="Original question", answer_type="textarea", optional=False
+    )
+    workspace = await create_workspace(
+        db_session, user_id=admin_user.id, name="WS", validation_result=SAMPLE_VALIDATION_RESULT
+    )
+    await db_session.commit()
+
+    await _authenticate(admin_user)
+
+    response = await client.post(
+        "/api/v1/user-feedback",
+        json={
+            "workspace_id": workspace.id,
+            "answers": [{"questionnaire_id": q.id, "user_answers": ["ok"]}],
+        },
+    )
+    assert response.status_code == status.HTTP_200_OK
+
+    # Admin edits the template question text.
+    response = await client.put(
+        f"/api/v1/admin/feedback-questionnaire/{q.id}",
+        json={"question": "Edited question"},
+    )
+    assert response.status_code == status.HTTP_200_OK
+
+    # The historical submission must still show the question the user actually saw.
+    response = await client.get("/api/v1/user-feedback")
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["feedback"][0]["question"] == "Original question"
+
+    stored = (
+        await db_session.execute(
+            select(UserFeedbackQuestionnaire).where(
+                UserFeedbackQuestionnaire.questionnaire_id == q.id
+            )
+        )
+    ).scalar_one()
+    assert stored.question_snapshot == "Original question"
+
 
 @pytest.mark.asyncio
 async def test_service_create_feedback_question_non_admin(normal_user: User, db_session: AsyncSession):
