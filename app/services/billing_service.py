@@ -21,7 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Payment, Plan, Role, Subscription, User, WebhookEvent
-from app.models.billing_models import PlanOut, SubscribeOut, SubscriptionOut
+from app.models.billing_models import AllowanceOut, PlanOut, SubscribeOut, SubscriptionOut
 from app.services.razorpay_service import razorpay_service
 
 logger = logging.getLogger(__name__)
@@ -106,6 +106,39 @@ class BillingService:
             )
             for p in plans
         ]
+
+    # ── Free plan selection (issue #190/#191) ─────────────────────────────────────
+
+    async def select_free_plan(self, plan_code: str, user: User, db: AsyncSession) -> AllowanceOut:
+        """Select the FREE plan: ensure the user's baseline allowance row exists.
+
+        Paid plans must go through Razorpay Checkout (`create_subscription`) — their
+        allowance is granted by the `subscription.charged` webhook. This endpoint only
+        handles the free tier (Case 1): it creates the `user_allowed_workspaces` row at
+        the free baseline if absent, and is idempotent (returns the existing row
+        otherwise, never adding on top).
+        """
+        plan = (
+            await db.execute(
+                select(Plan).where(Plan.code == plan_code, Plan.is_active.is_(True))
+            )
+        ).scalar_one_or_none()
+        if plan is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Plan '{plan_code}' not found.")
+        if (plan.price_monthly or 0) > 0:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Plan '{plan_code}' is a paid plan — use /api/billing/subscribe to purchase it.",
+            )
+
+        from app.services.entitlements_service import entitlements_service  # lazy: avoid cycle
+
+        row = await entitlements_service.get_or_create(user.id, db)
+        return AllowanceOut(
+            planCode=plan.code,
+            allowedWorkspaces=row.allowed_workspaces,
+            allowedResponses=row.allowed_responses,
+        )
 
     # ── Subscribe ───────────────────────────────────────────────────────────────
 

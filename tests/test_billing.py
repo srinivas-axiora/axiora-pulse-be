@@ -761,6 +761,62 @@ async def test_api_cancel_no_subscription(client: AsyncClient, db_session: Async
     assert resp.status_code == 404
 
 
+# ── API select free plan (issue #190) ───────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_api_select_free_plan_creates_baseline(client: AsyncClient, db_session: AsyncSession):
+    user = await _create_user(db_session)
+    db_session.add(Plan(code="starter", name="Starter", price_monthly=0, price_yearly=0,
+                        features=[], tier=0, is_active=True))
+    await db_session.commit()
+    authenticate_as(user)
+    resp = await client.post("/api/billing/subscription/starter")
+    assert resp.status_code == 201
+    data = resp.json()["data"]
+    assert data["planCode"] == "starter"
+    assert data["allowedWorkspaces"] == 1
+    assert data["allowedResponses"] == 100
+
+
+@pytest.mark.asyncio
+async def test_api_select_free_plan_is_idempotent(client: AsyncClient, db_session: AsyncSession):
+    user = await _create_user(db_session)
+    db_session.add(Plan(code="starter", name="Starter", price_monthly=0, price_yearly=0,
+                        features=[], tier=0, is_active=True))
+    await db_session.commit()
+    authenticate_as(user)
+    await client.post("/api/billing/subscription/starter")
+    resp = await client.post("/api/billing/subscription/starter")
+    assert resp.status_code == 201
+    assert resp.json()["data"]["allowedWorkspaces"] == 1  # not doubled
+
+
+@pytest.mark.asyncio
+async def test_api_select_free_plan_rejects_paid(client: AsyncClient, db_session: AsyncSession):
+    user = await _create_user(db_session)
+    db_session.add(Plan(code="builder", name="Builder", price_monthly=299, price_yearly=0,
+                        features=[], tier=2, is_active=True))
+    await db_session.commit()
+    authenticate_as(user)
+    resp = await client.post("/api/billing/subscription/builder")
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_api_select_free_plan_unknown_404(client: AsyncClient, db_session: AsyncSession):
+    user = await _create_user(db_session)
+    await db_session.commit()
+    authenticate_as(user)
+    resp = await client.post("/api/billing/subscription/nope")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_api_select_free_plan_requires_auth(client: AsyncClient, db_session: AsyncSession):
+    resp = await client.post("/api/billing/subscription/starter")
+    assert resp.status_code in (401, 403)  # rejected unauthenticated
+
+
 # ── API webhook ────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

@@ -28,6 +28,7 @@ from app.core.limiter import limiter
 from app.db.database import get_db
 from app.db.models import User
 from app.models.billing_models import (
+    AllowanceEnvelope,
     CancelEnvelope,
     PlansEnvelope,
     SubscribeEnvelope,
@@ -79,6 +80,25 @@ async def subscribe(
         payload.planId, payload.billingPeriod, current_user, db
     )
     return SubscribeEnvelope(data=data)
+
+
+# ── Select free plan (auth) ──────────────────────────────────────────────────────
+
+@router.post(
+    "/subscription/{plan_id}",
+    response_model=AllowanceEnvelope,
+    status_code=status.HTTP_201_CREATED,
+    summary="Select the free plan — ensure the user's baseline allowance exists",
+)
+@limiter.limit("20/minute")
+async def select_free_plan(
+    request: Request,
+    plan_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> AllowanceEnvelope:
+    data = await billing_service.select_free_plan(plan_id, current_user, db)
+    return AllowanceEnvelope(data=data)
 
 
 # ── Verify checkout signature (auth) ─────────────────────────────────────────────
