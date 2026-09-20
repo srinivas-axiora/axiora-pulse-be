@@ -19,15 +19,15 @@ dev DB and any other environment that already has the three standard plans.
 export_validation_reports is intentionally NOT created here — that capability
 is covered by the pre-existing `export_enabled` column.
 
-Revision ID: 0039
-Revises: 0038
+Revision ID: 0040
+Revises: 0039
 Create Date: 2026-09-19
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0039"
-down_revision = "0038"
+revision = "0040"
+down_revision = "0039"
 branch_labels = None
 depends_on = None
 
