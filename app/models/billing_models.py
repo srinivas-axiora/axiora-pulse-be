@@ -52,6 +52,13 @@ class SubscriptionOut(BaseModel):
     cancelAtPeriodEnd: bool = False
 
 
+class AllowanceOut(BaseModel):
+    """The user's current accumulating allowance (user_allowed_workspaces)."""
+    planCode: str = Field(..., description="Plan code selected, e.g. 'starter'")
+    allowedWorkspaces: int = Field(..., description="Total workspaces the user may create")
+    allowedResponses: int = Field(..., description="Total survey responses allowed across the account")
+
+
 # ── Requests ────────────────────────────────────────────────────────────────────
 
 class SubscribeRequest(BaseModel):
@@ -100,4 +107,10 @@ class VerifyEnvelope(BaseModel):
 class CancelEnvelope(BaseModel):
     success: bool = True
     data: SubscriptionOut
+    message: Optional[str] = None
+
+
+class AllowanceEnvelope(BaseModel):
+    success: bool = True
+    data: AllowanceOut
     message: Optional[str] = None
