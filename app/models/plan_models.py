@@ -1,0 +1,94 @@
+"""Request and response schemas for the admin Plans management endpoints.
+
+Endpoints:
+  GET  /api/v1/plans      → PlanListResponse (all plans, including inactive)
+  GET  /api/v1/plan/{id}  → PlanResponse
+  POST /api/v1/plan       → PlanResponse (admin)
+  PUT  /api/v1/plan/{id}  → PlanResponse (admin; also toggles is_active)
+"""
+from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+
+class CreatePlanRequest(BaseModel):
+    """Payload for POST /api/v1/plan."""
+
+    code: str = Field(..., min_length=1, max_length=50, description="Unique plan code, e.g. 'pro'")
+    name: str = Field(..., min_length=1, max_length=100, description="Display name, e.g. 'Pro'")
+    description: str | None = Field(default=None)
+    razorpay_plan_id_monthly: str | None = Field(default=None, max_length=255)
+    razorpay_plan_id_yearly: str | None = Field(default=None, max_length=255)
+    price_monthly: int = Field(default=0, ge=0)
+    price_yearly: int = Field(default=0, ge=0)
+    currency: str = Field(default="INR", max_length=3)
+    features: list[str] = Field(default_factory=list)
+    tier: int = Field(default=0, ge=0, description="Gating rank: free=0, pro=1, ...")
+    workspace_limit: int | None = Field(default=None, ge=0)
+    survey_response_cap: int | None = Field(default=None, ge=0)
+    regeneration_limit: int | None = Field(default=None, ge=0)
+    export_enabled: bool = Field(default=True)
+    export_validation_reports: bool = Field(default=True)
+    stage_rerun: int | None = Field(default=None, ge=0, description="NULL = not allowed")
+    survey_analytics: Literal["Basic", "Advanced"] = Field(default="Basic")
+    popular: bool = Field(default=False)
+    is_active: bool = Field(default=True)
+
+
+class UpdatePlanRequest(BaseModel):
+    """Payload for PUT /api/v1/plan/{id} — every field optional; set is_active to deactivate/activate."""
+
+    code: str | None = Field(default=None, min_length=1, max_length=50)
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = None
+    razorpay_plan_id_monthly: str | None = Field(default=None, max_length=255)
+    razorpay_plan_id_yearly: str | None = Field(default=None, max_length=255)
+    price_monthly: int | None = Field(default=None, ge=0)
+    price_yearly: int | None = Field(default=None, ge=0)
+    currency: str | None = Field(default=None, max_length=3)
+    features: list[str] | None = None
+    tier: int | None = Field(default=None, ge=0)
+    workspace_limit: int | None = Field(default=None, ge=0)
+    survey_response_cap: int | None = Field(default=None, ge=0)
+    regeneration_limit: int | None = Field(default=None, ge=0)
+    export_enabled: bool | None = None
+    export_validation_reports: bool | None = None
+    stage_rerun: int | None = Field(default=None, ge=0)
+    survey_analytics: Literal["Basic", "Advanced"] | None = None
+    popular: bool | None = None
+    is_active: bool | None = None
+
+
+class PlanResponse(BaseModel):
+    """Full plan record returned by the admin Plans endpoints."""
+
+    id: int
+    code: str
+    name: str
+    description: str | None
+    razorpay_plan_id_monthly: str | None
+    razorpay_plan_id_yearly: str | None
+    price_monthly: int
+    price_yearly: int
+    currency: str
+    features: list[str]
+    tier: int
+    workspace_limit: int | None
+    survey_response_cap: int | None
+    regeneration_limit: int | None
+    export_enabled: bool
+    export_validation_reports: bool
+    stage_rerun: int | None
+    survey_analytics: str
+    popular: bool
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PlanListResponse(BaseModel):
+    plans: list[PlanResponse]
