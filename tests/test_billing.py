@@ -817,6 +817,84 @@ async def test_api_select_free_plan_requires_auth(client: AsyncClient, db_sessio
     assert resp.status_code in (401, 403)  # rejected unauthenticated
 
 
+# ── Free trial + account status (issue #194 follow-up) ──────────────────────────
+
+@pytest.mark.asyncio
+async def test_select_free_plan_starts_trial(db_session: AsyncSession):
+    from app.services.entitlements_service import entitlements_service
+    user = await _create_user(db_session, role_name="viewer")
+    db_session.add(Plan(code="starter", name="Starter", price_monthly=0, price_yearly=0,
+                        features=[], tier=0, is_active=True))
+    await db_session.commit()
+    await billing_service.select_free_plan("starter", user, db_session)
+    row = await entitlements_service.get(user.id, db_session)
+    assert row.free_trial_expires_at is not None
+
+
+@pytest.mark.asyncio
+async def test_has_active_entitlement_true_during_free_trial(db_session: AsyncSession):
+    from app.services.entitlements_service import entitlements_service
+    user = await _create_user(db_session, role_name="viewer")
+    await entitlements_service.start_free_trial(user.id, db_session)  # trial now + 7d
+    await db_session.commit()
+    with patch("app.services.billing_service.SUBSCRIPTION_ENFORCED", True):
+        assert await billing_service.has_active_entitlement(user, db_session) is True
+
+
+@pytest.mark.asyncio
+async def test_has_active_entitlement_false_after_trial_expired(db_session: AsyncSession):
+    from datetime import timedelta
+    from app.core.timezone import now_ist
+    from app.db.models import UserAllowedWorkspaces
+    user = await _create_user(db_session, role_name="viewer")
+    db_session.add(UserAllowedWorkspaces(
+        user_id=user.id, allowed_workspaces=1, allowed_responses=100,
+        free_trial_expires_at=now_ist() - timedelta(days=1),
+    ))
+    await db_session.commit()
+    with patch("app.services.billing_service.SUBSCRIPTION_ENFORCED", True):
+        assert await billing_service.has_active_entitlement(user, db_session) is False
+
+
+@pytest.mark.asyncio
+async def test_api_account_status_trial(client: AsyncClient, db_session: AsyncSession):
+    from app.services.entitlements_service import entitlements_service
+    user = await _create_user(db_session, role_name="viewer")
+    await entitlements_service.start_free_trial(user.id, db_session)
+    await db_session.commit()
+    authenticate_as(user)
+    resp = await client.get("/api/billing/status")
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["status"] == "trial"
+    assert data["plan"] == "starter"
+    assert data["trialEndsAt"] is not None
+    assert data["allowedWorkspaces"] == 1
+
+
+@pytest.mark.asyncio
+async def test_api_account_status_active_paid(client: AsyncClient, db_session: AsyncSession):
+    user = await _create_user(db_session)
+    plan = await _create_plan(db_session, code="builder", tier=2)
+    await _create_subscription(db_session, user, plan, status="active", rzp_sub_id="sub_status")
+    await db_session.commit()
+    authenticate_as(user)
+    resp = await client.get("/api/billing/status")
+    assert resp.status_code == 200
+    assert resp.json()["data"]["status"] == "active"
+    assert resp.json()["data"]["plan"] == "builder"
+
+
+@pytest.mark.asyncio
+async def test_api_account_status_none(client: AsyncClient, db_session: AsyncSession):
+    user = await _create_user(db_session, role_name="viewer")
+    await db_session.commit()
+    authenticate_as(user)
+    resp = await client.get("/api/billing/status")
+    assert resp.status_code == 200
+    assert resp.json()["data"]["status"] == "none"
+
+
 # ── API webhook ────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

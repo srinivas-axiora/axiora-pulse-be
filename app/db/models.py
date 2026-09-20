@@ -718,6 +718,9 @@ class UserAllowedWorkspaces(Base):
     )
     allowed_workspaces: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     allowed_responses: Mapped[int] = mapped_column(Integer, nullable=False, default=100, server_default="100")
+    # When the free (Starter) 7-day trial ends. NULL = no trial started (paid-first
+    # users rely on their subscription). Set on free-plan selection.
+    free_trial_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 

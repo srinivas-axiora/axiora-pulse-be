@@ -59,6 +59,17 @@ class AllowanceOut(BaseModel):
     allowedResponses: int = Field(..., description="Total survey responses allowed across the account")
 
 
+class AccountStatusOut(BaseModel):
+    """The user's current plan + access status, for the profile 'My Plan' view."""
+    plan: Optional[str] = Field(None, description="Current plan code (starter|builder|pro); null if none")
+    planName: Optional[str] = Field(None, description="Human plan name, e.g. 'Builder'")
+    status: str = Field(..., description="active (paid) | trial | expired | none")
+    trialEndsAt: Optional[datetime] = Field(None, description="Free-trial end (only when status='trial')")
+    allowedWorkspaces: int = Field(0, description="Total workspaces the user may create")
+    usedWorkspaces: int = Field(0, description="Workspaces currently used (active + archived)")
+    allowedResponses: int = Field(0, description="Total survey responses allowed across the account")
+
+
 # ── Requests ────────────────────────────────────────────────────────────────────
 
 class SubscribeRequest(BaseModel):
@@ -113,4 +124,10 @@ class CancelEnvelope(BaseModel):
 class AllowanceEnvelope(BaseModel):
     success: bool = True
     data: AllowanceOut
+    message: Optional[str] = None
+
+
+class AccountStatusEnvelope(BaseModel):
+    success: bool = True
+    data: AccountStatusOut
     message: Optional[str] = None

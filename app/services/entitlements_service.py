@@ -15,11 +15,13 @@ Export stays a per-plan on/off (billing_service); storage/regenerations/analytic
 are out of scope (not built).
 """
 import logging
+from datetime import timedelta
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.timezone import now_ist
 from app.db.models import Plan, Subscription, User, UserAllowedWorkspaces
 
 logger = logging.getLogger(__name__)
@@ -28,10 +30,48 @@ logger = logging.getLogger(__name__)
 # the first time it is needed; paid charges accumulate on top.
 FREE_WORKSPACES = 1
 FREE_RESPONSES = 100
+# Length of the free (Starter) trial.
+FREE_TRIAL_DAYS = 7
 
 
 class EntitlementsService:
     """Stateless — all state lives in the DB session."""
+
+    async def get(self, user_id: int, db: AsyncSession) -> UserAllowedWorkspaces | None:
+        """Read the user's allowance row (no side effects)."""
+        return (
+            await db.execute(
+                select(UserAllowedWorkspaces).where(UserAllowedWorkspaces.user_id == user_id)
+            )
+        ).scalar_one_or_none()
+
+    @staticmethod
+    def is_trial_active(row: UserAllowedWorkspaces | None) -> bool:
+        """True if the row has a free trial that has not yet expired."""
+        if not row or not row.free_trial_expires_at:
+            return False
+        expires = row.free_trial_expires_at
+        now = now_ist()
+        # SQLite (tests) drops tzinfo; we always store now_ist(), so compare on the
+        # same wall clock when the stored value came back naive.
+        if expires.tzinfo is None:
+            now = now.replace(tzinfo=None)
+        return expires > now
+
+    async def start_free_trial(self, user_id: int, db: AsyncSession) -> UserAllowedWorkspaces:
+        """Ensure the allowance row exists and start the 7-day free trial if not already.
+
+        Idempotent: the trial clock is stamped only the first time, so re-selecting
+        the free plan never extends it.
+        """
+        row = await self.get_or_create(user_id, db)
+        if row.free_trial_expires_at is None:
+            row.free_trial_expires_at = now_ist() + timedelta(days=FREE_TRIAL_DAYS)
+            await db.flush()
+            logger.info(
+                "Started free trial for user %s → expires %s", user_id, row.free_trial_expires_at
+            )
+        return row
 
     async def get_or_create(self, user_id: int, db: AsyncSession) -> UserAllowedWorkspaces:
         """Return the user's allowance row, creating it at the free baseline if absent."""

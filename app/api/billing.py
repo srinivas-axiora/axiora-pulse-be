@@ -28,6 +28,7 @@ from app.core.limiter import limiter
 from app.db.database import get_db
 from app.db.models import User
 from app.models.billing_models import (
+    AccountStatusEnvelope,
     AllowanceEnvelope,
     CancelEnvelope,
     PlansEnvelope,
@@ -80,6 +81,23 @@ async def subscribe(
         payload.planId, payload.billingPeriod, current_user, db
     )
     return SubscribeEnvelope(data=data)
+
+
+# ── Account status (auth) ────────────────────────────────────────────────────────
+
+@router.get(
+    "/status",
+    response_model=AccountStatusEnvelope,
+    summary="Current plan + access status (for the profile 'My Plan' view)",
+)
+@limiter.limit("60/minute")
+async def account_status(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> AccountStatusEnvelope:
+    data = await billing_service.get_account_status(current_user, db)
+    return AccountStatusEnvelope(data=data)
 
 
 # ── Select free plan (auth) ──────────────────────────────────────────────────────

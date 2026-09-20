@@ -16,12 +16,18 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Payment, Plan, Role, Subscription, User, WebhookEvent
-from app.models.billing_models import AllowanceOut, PlanOut, SubscribeOut, SubscriptionOut
+from app.db.models import Payment, Plan, Role, Subscription, User, WebhookEvent, Workspace
+from app.models.billing_models import (
+    AccountStatusOut,
+    AllowanceOut,
+    PlanOut,
+    SubscribeOut,
+    SubscriptionOut,
+)
 from app.services.razorpay_service import razorpay_service
 
 logger = logging.getLogger(__name__)
@@ -133,7 +139,8 @@ class BillingService:
 
         from app.services.entitlements_service import entitlements_service  # lazy: avoid cycle
 
-        row = await entitlements_service.get_or_create(user.id, db)
+        # Ensure the baseline row and start the 7-day free trial (idempotent).
+        row = await entitlements_service.start_free_trial(user.id, db)
         return AllowanceOut(
             planCode=plan.code,
             allowedWorkspaces=row.allowed_workspaces,
@@ -464,24 +471,80 @@ class BillingService:
         )
 
     async def has_active_entitlement(self, user: User, db: AsyncSession) -> bool:
-        """True if the user currently holds a paid, entitled subscription.
+        """True if the user can currently access the app.
 
-        When `SUBSCRIPTION_ENFORCED` is disabled (local dev), the gate is bypassed
-        and every user is treated as entitled. This is the single chokepoint used
-        both by the auth-response `hasActivePlan` and the `require_active_subscription`
-        dependency, so one flag flips the entire payment gate.
+        Active means: an entitled (paid) subscription, OR a free trial that hasn't
+        expired yet. When `SUBSCRIPTION_ENFORCED` is disabled (local dev) everyone is
+        entitled. This is the single chokepoint behind the auth-response
+        `hasActivePlan` and the `require_active_subscription` dependency, so it also
+        governs the frontend route guard (expired users → pricing page).
         """
         if not SUBSCRIPTION_ENFORCED:
             return True
 
-        row = (
+        paid = (
             await db.execute(
                 select(Subscription.id).where(
                     Subscription.user_id == user.id, Subscription.status.in_(_ENTITLED)
                 )
             )
         ).first()
-        return row is not None
+        if paid is not None:
+            return True
+
+        # Free trial still running?
+        from app.services.entitlements_service import entitlements_service
+
+        row = await entitlements_service.get(user.id, db)
+        return entitlements_service.is_trial_active(row)
+
+    async def get_account_status(self, user: User, db: AsyncSession) -> AccountStatusOut:
+        """Current plan + access status for the profile 'My Plan' view."""
+        from app.services.entitlements_service import (
+            FREE_RESPONSES,
+            FREE_WORKSPACES,
+            entitlements_service,
+        )
+
+        row = await entitlements_service.get(user.id, db)
+        used_workspaces = (
+            await db.execute(
+                select(func.count(Workspace.id)).where(Workspace.user_id == user.id)
+            )
+        ).scalar_one()
+        allowed_workspaces = row.allowed_workspaces if row else FREE_WORKSPACES
+        allowed_responses = row.allowed_responses if row else FREE_RESPONSES
+
+        paid_sub = (
+            await db.execute(
+                select(Subscription)
+                .where(Subscription.user_id == user.id, Subscription.status.in_(_ENTITLED))
+                .order_by(Subscription.created_at.desc())
+            )
+        ).scalars().first()
+
+        if paid_sub is not None:
+            plan = (
+                await db.execute(select(Plan).where(Plan.id == paid_sub.plan_id))
+            ).scalar_one_or_none()
+            status_, code, name, trial_ends = "active", (plan.code if plan else None), (plan.name if plan else None), None
+        elif entitlements_service.is_trial_active(row):
+            status_, code, name, trial_ends = "trial", "starter", "Starter", row.free_trial_expires_at
+        elif row is not None:
+            # Row exists but no paid sub and trial (if any) has ended.
+            status_, code, name, trial_ends = "expired", "starter", "Starter", row.free_trial_expires_at
+        else:
+            status_, code, name, trial_ends = "none", None, None, None
+
+        return AccountStatusOut(
+            plan=code,
+            planName=name,
+            status=status_,
+            trialEndsAt=trial_ends,
+            allowedWorkspaces=allowed_workspaces,
+            usedWorkspaces=used_workspaces,
+            allowedResponses=allowed_responses,
+        )
 
     # ── Per-plan quota limits (entitlement layer) ──────────────────────────────
 
