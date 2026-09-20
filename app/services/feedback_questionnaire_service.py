@@ -123,6 +123,18 @@ class FeedbackQuestionnaireService:
         )
         return FeedbackQuestionnaireResponse.model_validate(question)
 
+    async def has_user_submitted(self, user_id: int, workspace_id: int, db: AsyncSession) -> bool:
+        """Return True when the user has already submitted feedback for a workspace."""
+        row = await db.execute(
+            select(UserFeedbackQuestionnaire.id)
+            .where(
+                UserFeedbackQuestionnaire.user_id == user_id,
+                UserFeedbackQuestionnaire.workspace_id == workspace_id,
+            )
+            .limit(1)
+        )
+        return row.scalar_one_or_none() is not None
+
     async def submit_feedback(
         self,
         payload: UserFeedbackSubmitRequest,
@@ -131,10 +143,11 @@ class FeedbackQuestionnaireService:
     ) -> Response:
         """Persist a user's feedback answers and trigger the certificate export.
 
-        Feedback is a one-time submission: existing answers for the same
-        (user, workspace, question) are updated instead of duplicated. After
-        the answers are saved, the workspace certificate export is triggered
-        automatically and the generated PDF is returned as the response.
+        Feedback is strictly one-time per workspace: if the user already
+        submitted feedback for ``payload.workspace_id`` the request is rejected
+        with 409 (they should not be asked again). Otherwise the answers are
+        saved and the workspace certificate export is triggered automatically,
+        returning the generated PDF as the response.
         """
         if not payload.answers:
             logger.warning(
@@ -143,6 +156,17 @@ class FeedbackQuestionnaireService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="At least one feedback answer item is required.",
+            )
+
+        if await self.has_user_submitted(current_user.id, payload.workspace_id, db):
+            logger.info(
+                "Feedback resubmission rejected for user_id=%s workspace_id=%s",
+                current_user.id,
+                payload.workspace_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Feedback for this workspace has already been submitted and can only be given once.",
             )
 
         questions_result = await db.execute(select(FeedbackQuestionnaire))

@@ -8,6 +8,7 @@ from app.db.database import get_db
 from app.db.models import User
 from app.models.feedback_questionnaire_models import (
     CreateFeedbackQuestionRequest,
+    FeedbackQuestionnaireListResponse,
     FeedbackQuestionnaireResponse,
     UpdateFeedbackQuestionRequest,
 )
@@ -66,15 +67,26 @@ async def update_feedback_question(
 
 @user_router.get(
     "",
-    response_model=list[FeedbackQuestionnaireResponse],
+    response_model=FeedbackQuestionnaireListResponse,
     status_code=status.HTTP_200_OK,
-    summary="List displayed feedback questions",
-    description="Returns the active questions shown on the feedback form. Pass `is_display=false` to list hidden ones.",
+    summary="List displayed feedback questions for a workspace",
+    description=(
+        "Returns the active questions shown on the feedback form. Pass `is_display=false` to "
+        "list hidden ones. When a `workspace_id` is provided, `alreadySubmitted` tells whether "
+        "feedback was already given for that workspace; it is null otherwise (generic fetch)."
+    ),
 )
 async def list_displayed_feedback_questions(
+    workspace_id: int | None = Query(None, ge=1, description="Optional workspace to check submission status for"),
     is_display: bool = Query(True, description="Only return questions with this display flag"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> list[FeedbackQuestionnaireResponse]:
+) -> FeedbackQuestionnaireListResponse:
     logger.info("Listing displayed feedback questions for user_id=%s", current_user.id)
-    return await feedback_questionnaire_service.list_displayed_questions(db, is_display)
+    questions = await feedback_questionnaire_service.list_displayed_questions(db, is_display)
+    already_submitted = None
+    if workspace_id is not None:
+        already_submitted = await feedback_questionnaire_service.has_user_submitted(
+            current_user.id, workspace_id, db
+        )
+    return FeedbackQuestionnaireListResponse(alreadySubmitted=already_submitted, questions=questions)

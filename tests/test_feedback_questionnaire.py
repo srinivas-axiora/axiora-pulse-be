@@ -250,19 +250,40 @@ async def test_list_displayed_feedback_questions(
 ):
     await seed_feedback_question(db_session, question="Shown", answer_type="textarea", optional=True, is_display=True)
     await seed_feedback_question(db_session, question="Hidden", answer_type="textarea", optional=True, is_display=False)
+    workspace = await create_workspace(
+        db_session, user_id=normal_user.id, name="Feedback Workspace", validation_result=SAMPLE_VALIDATION_RESULT
+    )
     await db_session.commit()
 
     await _authenticate(normal_user)
-    response = await client.get("/api/v1/feedback-questionnaire?is_display=true")
+
+    # Generic fetch: no workspace_id => questions only, alreadySubmitted is null.
+    generic = await client.get("/api/v1/feedback-questionnaire", params={"is_display": "true"})
+    assert generic.status_code == status.HTTP_200_OK
+    generic_data = generic.json()
+    assert generic_data["alreadySubmitted"] is None
+    assert len(generic_data["questions"]) == 1
+    assert generic_data["questions"][0]["question"] == "Shown"
+
+    workspace_id = workspace.id
+    response = await client.get(
+        "/api/v1/feedback-questionnaire", params={"workspace_id": workspace_id, "is_display": "true"}
+    )
     assert response.status_code == status.HTTP_200_OK
     data = response.json()
-    assert len(data) == 1
-    assert data[0]["question"] == "Shown"
+    assert data["alreadySubmitted"] is False
+    assert len(data["questions"]) == 1
+    assert data["questions"][0]["question"] == "Shown"
+    assert data["questions"][0].get("is_display") is True
 
-    response_hidden = await client.get("/api/v1/feedback-questionnaire?is_display=false")
+    response_hidden = await client.get(
+        "/api/v1/feedback-questionnaire", params={"workspace_id": workspace_id, "is_display": "false"}
+    )
     assert response_hidden.status_code == status.HTTP_200_OK
-    assert len(response_hidden.json()) == 1
-    assert response_hidden.json()[0]["question"] == "Hidden"
+    hidden_data = response_hidden.json()
+    assert hidden_data["alreadySubmitted"] is False
+    assert len(hidden_data["questions"]) == 1
+    assert hidden_data["questions"][0]["question"] == "Hidden"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -468,7 +489,7 @@ async def test_submit_feedback_success_returns_pdf_and_triggers_certificate(
 
 
 @pytest.mark.asyncio
-async def test_submit_feedback_one_time_upsert(
+async def test_submit_feedback_is_strictly_one_time(
     client: AsyncClient, normal_user: User, db_session: AsyncSession
 ):
     q = await seed_feedback_question(db_session, question="Feedback", answer_type="textarea", optional=False)
@@ -478,23 +499,61 @@ async def test_submit_feedback_one_time_upsert(
     await db_session.commit()
 
     await _authenticate(normal_user)
-    payload = {
-        "workspace_id": workspace.id,
-        "answers": [{"questionnaire_id": q.id, "user_answers": ["First"]}],
-    }
-    first = await client.post("/api/v1/user-feedback", json=payload)
+    user_id = normal_user.id
+    workspace_id = workspace.id
+    question_id = q.id
+    first = await client.post(
+        "/api/v1/user-feedback",
+        json={"workspace_id": workspace_id, "answers": [{"questionnaire_id": question_id, "user_answers": ["First"]}]},
+    )
     assert first.status_code == status.HTTP_200_OK
 
-    payload["answers"] = [{"questionnaire_id": q.id, "user_answers": ["Second"]}]
-    second = await client.post("/api/v1/user-feedback", json=payload)
-    assert second.status_code == status.HTTP_200_OK
+    # A second submission for the same workspace must be rejected (409).
+    second = await client.post(
+        "/api/v1/user-feedback",
+        json={"workspace_id": workspace_id, "answers": [{"questionnaire_id": question_id, "user_answers": ["Second"]}]},
+    )
+    assert second.status_code == status.HTTP_409_CONFLICT
+    assert "already been submitted" in second.json()["detail"]
 
     res = await db_session.execute(
-        select(UserFeedbackQuestionnaire).where(UserFeedbackQuestionnaire.user_id == normal_user.id)
+        select(UserFeedbackQuestionnaire).where(UserFeedbackQuestionnaire.user_id == user_id)
     )
     records = res.scalars().all()
     assert len(records) == 1
-    assert records[0].user_answers == ["Second"]
+    assert records[0].user_answers == ["First"]
+
+
+@pytest.mark.asyncio
+async def test_feedback_form_get_reports_submission_status(
+    client: AsyncClient, normal_user: User, db_session: AsyncSession
+):
+    q = await seed_feedback_question(db_session, question="Feedback", answer_type="textarea", optional=False)
+    workspace = await create_workspace(
+        db_session, user_id=normal_user.id, name="Idea", validation_result=SAMPLE_VALIDATION_RESULT
+    )
+    await db_session.commit()
+
+    await _authenticate(normal_user)
+    user_id = normal_user.id
+    workspace_id = workspace.id
+    question_id = q.id
+
+    before = await client.get("/api/v1/feedback-questionnaire", params={"workspace_id": workspace_id})
+    assert before.status_code == status.HTTP_200_OK
+    before_data = before.json()
+    assert before_data["alreadySubmitted"] is False
+    assert len(before_data["questions"]) == 1
+
+    resp = await client.post(
+        "/api/v1/user-feedback",
+        json={"workspace_id": workspace_id, "answers": [{"questionnaire_id": question_id, "user_answers": ["Done"]}]},
+    )
+    assert resp.status_code == status.HTTP_200_OK
+
+    after = await client.get("/api/v1/feedback-questionnaire", params={"workspace_id": workspace_id})
+    assert after.status_code == status.HTTP_200_OK
+    assert after.json()["alreadySubmitted"] is True
 
 
 @pytest.mark.asyncio

@@ -52,6 +52,21 @@ class FeedbackQuestionnaireResponse(BaseModel):
         from_attributes = True
 
 
+class FeedbackQuestionnaireListResponse(BaseModel):
+    """Feedback form payload for a workspace.
+
+    Wraps the displayed questions together with the one-time submission flag.
+    ``alreadySubmitted`` is ``None`` when no ``workspace_id`` was supplied (plain
+    generic question listing) and a boolean when a workspace context is present.
+    """
+
+    alreadySubmitted: bool | None = Field(
+        default=None,
+        description="True when the user already submitted feedback for this workspace; null when no workspace_id was given",
+    )
+    questions: list[FeedbackQuestionnaireResponse] = Field(..., description="Questions shown on the feedback form")
+
+
 class FeedbackAnswerItem(BaseModel):
     """Payload item for submitting feedback answers."""
 
