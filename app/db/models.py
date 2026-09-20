@@ -343,6 +343,9 @@ class UserFeedbackQuestionnaire(Base):
     user_answers: Mapped[list[str]] = mapped_column(
         JSON, nullable=False, default=list
     )
+    question_snapshot: Mapped[str] = mapped_column(
+        Text, nullable=False
+    )  # Question text at submission time; admin edits to the template don't rewrite history
     submission_date: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=datetime.utcnow
     )
@@ -664,6 +667,10 @@ class Plan(Base):
     __tablename__ = "plans"
     __table_args__ = (
         UniqueConstraint("code", name="uq_plans_code"),
+        CheckConstraint(
+            "survey_analytics IN ('Basic', 'Advanced')",
+            name="ck_plans_survey_analytics",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, index=True)
@@ -680,12 +687,16 @@ class Plan(Base):
 
     # ── Per-plan quota limits (Phase-1 entitlements) ──────────────────────────
     # Enforced by the billing/entitlement layer. For the integer caps, NULL means
-    # "unlimited / not enforced". Storage, stage re-runs and analytics tiers are
-    # intentionally not modelled yet — added when those features are scoped.
+    # "unlimited / not enforced".
     workspace_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
     survey_response_cap: Mapped[int | None] = mapped_column(Integer, nullable=True)
     regeneration_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
     export_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    stage_rerun: Mapped[int | None] = mapped_column(Integer, nullable=True)  # NULL = not allowed
+    survey_analytics: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="Basic", server_default="Basic"
+    )  # Basic | Advanced
+    storage: Mapped[int | None] = mapped_column(Integer, nullable=True)  # storage allowance in MB; NULL = not enforced
 
     popular: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")  # highlight in UI
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")

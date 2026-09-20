@@ -217,6 +217,7 @@ class FeedbackQuestionnaireService:
                 if q_id in existing_map:
                     record = existing_map[q_id]
                     record.user_answers = list(item.user_answers)
+                    record.question_snapshot = question_map[q_id].question
                     record.submission_date = now
                     record.updated_at = now
                 else:
@@ -225,6 +226,7 @@ class FeedbackQuestionnaireService:
                         workspace_id=payload.workspace_id,
                         questionnaire_id=q_id,
                         user_answers=list(item.user_answers),
+                        question_snapshot=question_map[q_id].question,
                         submission_date=now,
                         created_at=now,
                         updated_at=now,
@@ -304,6 +306,7 @@ class FeedbackQuestionnaireService:
             filters.append(
                 or_(
                     FeedbackQuestionnaire.question.ilike(term),
+                    UserFeedbackQuestionnaire.question_snapshot.ilike(term),
                     cast(UserFeedbackQuestionnaire.user_answers, String).ilike(term),
                 )
             )
@@ -312,8 +315,11 @@ class FeedbackQuestionnaireService:
         if date_to is not None:
             filters.append(UserFeedbackQuestionnaire.submission_date <= date_to)
 
+        # The pagination total is the number of USERS who submitted feedback, not
+        # the number of answered-question rows (one user submitting N questions is
+        # still a single response).
         total_statement = (
-            select(func.count(UserFeedbackQuestionnaire.id))
+            select(func.count(func.distinct(UserFeedbackQuestionnaire.user_id)))
             .join(User, User.id == UserFeedbackQuestionnaire.user_id)
             .outerjoin(
                 FeedbackQuestionnaire,
@@ -359,7 +365,9 @@ class FeedbackQuestionnaireService:
                 user_display_name=user_display_name,
                 workspace_id=row.workspace_id,
                 questionnaire_id=row.questionnaire_id,
-                question=question_text,
+                # Show the question text the respondent actually saw at submission
+                # time; falls back to the template text for legacy pre-snapshot rows.
+                question=row.question_snapshot or question_text,
                 user_answers=list(row.user_answers),
                 submission_date=row.submission_date,
             )

@@ -29,9 +29,9 @@ class CreatePlanRequest(BaseModel):
     survey_response_cap: int | None = Field(default=None, ge=0)
     regeneration_limit: int | None = Field(default=None, ge=0)
     export_enabled: bool = Field(default=True)
-    export_validation_reports: bool = Field(default=True)
     stage_rerun: int | None = Field(default=None, ge=0, description="NULL = not allowed")
     survey_analytics: Literal["Basic", "Advanced"] = Field(default="Basic")
+    storage: int | None = Field(default=None, ge=0, description="Storage allowance in MB; NULL = not enforced")
     popular: bool = Field(default=False)
     is_active: bool = Field(default=True)
 
@@ -53,9 +53,9 @@ class UpdatePlanRequest(BaseModel):
     survey_response_cap: int | None = Field(default=None, ge=0)
     regeneration_limit: int | None = Field(default=None, ge=0)
     export_enabled: bool | None = None
-    export_validation_reports: bool | None = None
     stage_rerun: int | None = Field(default=None, ge=0)
     survey_analytics: Literal["Basic", "Advanced"] | None = None
+    storage: int | None = Field(default=None, ge=0)
     popular: bool | None = None
     is_active: bool | None = None
 
@@ -78,9 +78,9 @@ class PlanResponse(BaseModel):
     survey_response_cap: int | None
     regeneration_limit: int | None
     export_enabled: bool
-    export_validation_reports: bool
     stage_rerun: int | None
     survey_analytics: str
+    storage: int | None
     popular: bool
     is_active: bool
     created_at: datetime
