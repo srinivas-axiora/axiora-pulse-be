@@ -1114,10 +1114,18 @@ class AuthService:
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        # 2. Hash new password
+        # 2. Ensure new password is not identical to current password
+        if request.new_password == request.current_password or await verify_password_async(request.new_password, user.password):
+            logger.warning("Failed change password attempt for user id=%s: new password is identical to current password", user.id)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="New password cannot be the same as your current password.",
+            )
+
+        # 3. Hash new password
         user.password = await hash_password_async(request.new_password)
 
-        # 3. Stamp password_changed_at — invalidates all other access tokens
+        # 4. Stamp password_changed_at — invalidates all other access tokens
         user.password_changed_at = datetime.now(tz=timezone.utc)
 
         logger.info(

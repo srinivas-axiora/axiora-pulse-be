@@ -260,6 +260,14 @@ class ChangePasswordRequest(BaseModel):
 
         return value
 
+    @model_validator(mode="after")
+    def verify_passwords_differ(self) -> "ChangePasswordRequest":
+        """Ensure the new password is not identical to the current password."""
+        if self.current_password and self.new_password:
+            if self.current_password == self.new_password:
+                raise ValueError("New password cannot be the same as your current password.")
+        return self
+
 
 class ChangePasswordResponse(BaseModel):
     """Returned after a successful password change."""
