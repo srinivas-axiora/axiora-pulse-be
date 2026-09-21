@@ -40,16 +40,22 @@ class CreatePlanRequest(BaseModel):
 class CreatePlanWithRazorpayRequest(CreatePlanRequest):
     """Payload for POST /api/v1/plan/with-razorpay.
 
-    All ``CreatePlanRequest`` fields plus the Razorpay credentials used to
-    auto-provision the monthly/yearly Razorpay plans. Credentials are consumed
-    on the server and never persisted or returned.
+    All ``CreatePlanRequest`` fields plus optional Razorpay credentials used to
+    auto-provision the monthly/yearly Razorpay plans. When omitted, the
+    ``RAZORPAY_KEY_ID`` / ``RAZORPAY_KEY_SECRET`` environment values are used —
+    the normal flow, so credentials never need to be sent in the request body.
+    Credentials are consumed on the server, never persisted or returned.
     """
 
-    razorpay_key_id: str = Field(
-        ..., min_length=1, max_length=255, description="Razorpay Key ID used to create the plans"
+    razorpay_key_id: str | None = Field(
+        default=None,
+        max_length=255,
+        description="Optional Razorpay Key ID. Defaults to RAZORPAY_KEY_ID env value.",
     )
-    razorpay_key_secret: str = Field(
-        ..., min_length=1, max_length=255, description="Razorpay Key Secret used to create the plans"
+    razorpay_key_secret: str | None = Field(
+        default=None,
+        max_length=255,
+        description="Optional Razorpay Key Secret. Defaults to RAZORPAY_KEY_SECRET env value.",
     )
 
 
