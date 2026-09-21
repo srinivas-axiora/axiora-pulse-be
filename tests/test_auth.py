@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials
 from httpx import AsyncClient
 from jose import jwt
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -904,6 +905,12 @@ async def test_forgot_password_reset_rejects_token_without_subject_and_unknown_u
 async def test_change_password_success_and_failure(db_session: AsyncSession):
     user = await create_user(db_session, username="change-password@axiorapulse.com")
 
+    # Reject identical current and new passwords at model validation level
+    with pytest.raises(ValidationError) as same_pw_model_exc:
+        ChangePasswordRequest(current_password="Test@12345", new_password="Test@12345")
+    assert "New password cannot be the same as your current password." in str(same_pw_model_exc.value)
+
+    # Reject incorrect current password
     with pytest.raises(HTTPException) as wrong_current_exc:
         await auth_service.change_password(
             user,
@@ -911,6 +918,20 @@ async def test_change_password_success_and_failure(db_session: AsyncSession):
             db_session,
         )
     assert wrong_current_exc.value.status_code == status.HTTP_401_UNAUTHORIZED
+
+    # Service layer defense-in-depth: rejected if model validation is bypassed
+    bypassed_request = ChangePasswordRequest.model_construct(
+        current_password="Test@12345",
+        new_password="Test@12345",
+    )
+    with pytest.raises(HTTPException) as same_pw_service_exc:
+        await auth_service.change_password(
+            user,
+            bypassed_request,
+            db_session,
+        )
+    assert same_pw_service_exc.value.status_code == status.HTTP_400_BAD_REQUEST
+    assert same_pw_service_exc.value.detail == "New password cannot be the same as your current password."
 
     response = await auth_service.change_password(
         user,
@@ -920,6 +941,33 @@ async def test_change_password_success_and_failure(db_session: AsyncSession):
     assert response.status == "success"
     assert await verify_password_async("NewPass@12345", user.password)
     assert user.password_changed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_change_password_api_rejects_identical_passwords(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    user = await create_user(db_session, username="change-pw-api@axiorapulse.com")
+    access_token = jwt.encode(
+        {
+            "sub": str(user.id),
+            "username": user.username,
+            "role": user._primary_role,
+            "iat": datetime.now(tz=timezone.utc),
+            "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=15),
+        },
+        os.getenv("JWT_SECRET_KEY"),
+        algorithm=os.getenv("JWT_ALGORITHM"),
+    )
+
+    response = await client.post(
+        "/api/v1/auth/change-password",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"current_password": "Test@12345", "new_password": "Test@12345"},
+    )
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert "New password cannot be the same as your current password." in response.text
 
 
 @pytest.mark.asyncio
