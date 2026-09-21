@@ -4,6 +4,7 @@ Endpoints:
   GET  /api/v1/plans      → PlanListResponse (all plans, including inactive)
   GET  /api/v1/plan/{id}  → PlanResponse
   POST /api/v1/plan       → PlanResponse (admin)
+  POST /api/v1/plan/with-razorpay → PlanResponse (admin; also creates Razorpay plans)
   PUT  /api/v1/plan/{id}  → PlanResponse (admin; also toggles is_active)
 """
 from datetime import datetime
@@ -34,6 +35,22 @@ class CreatePlanRequest(BaseModel):
     storage_limit: int | None = Field(default=None, ge=0, description="Storage allowance in MB; NULL = not enforced")
     popular: bool = Field(default=False)
     is_active: bool = Field(default=True)
+
+
+class CreatePlanWithRazorpayRequest(CreatePlanRequest):
+    """Payload for POST /api/v1/plan/with-razorpay.
+
+    All ``CreatePlanRequest`` fields plus the Razorpay credentials used to
+    auto-provision the monthly/yearly Razorpay plans. Credentials are consumed
+    on the server and never persisted or returned.
+    """
+
+    razorpay_key_id: str = Field(
+        ..., min_length=1, max_length=255, description="Razorpay Key ID used to create the plans"
+    )
+    razorpay_key_secret: str = Field(
+        ..., min_length=1, max_length=255, description="Razorpay Key Secret used to create the plans"
+    )
 
 
 class UpdatePlanRequest(BaseModel):

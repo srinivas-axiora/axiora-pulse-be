@@ -164,6 +164,161 @@ async def test_get_plan_not_found(client: AsyncClient, admin_user: User):
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
+# ── Create with Razorpay ─────────────────────────────────────────────────────
+
+def _razorpay_credentials():
+    return {"razorpay_key_id": "rzp_test_key", "razorpay_key_secret": "secret"}
+
+
+@pytest.mark.asyncio
+async def test_create_plan_with_razorpay_success(
+    client: AsyncClient, admin_user: User, monkeypatch
+):
+    calls = {}
+
+    def _fake_create(**kwargs):
+        calls[kwargs["notes"]["billing_period"]] = kwargs
+        return {"id": f"rzp_plan_{kwargs['notes']['billing_period']}"}
+
+    monkeypatch.setattr(
+        "app.services.plan_service.razorpay_service.create_plan", _fake_create
+    )
+    await _authenticate(admin_user)
+
+    response = await client.post(
+        "/api/v1/plan/with-razorpay",
+        json={
+            "code": "pro",
+            "name": "Pro",
+            "description": "Full features",
+            "price_monthly": 799,
+            "price_yearly": 7990,
+            "currency": "INR",
+            "features": ["a", "b"],
+            "tier": 1,
+            "workspace_limit": 10,
+            "survey_response_cap": 2000,
+            "regeneration_limit": 20,
+            "export_enabled": True,
+            "stage_rerun": 5,
+            "survey_analytics": "Advanced",
+            "storage_limit": 5000,
+            "popular": True,
+            **_razorpay_credentials(),
+        },
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+    data = response.json()
+    assert data["code"] == "pro"
+    assert data["razorpay_plan_id_monthly"] == "rzp_plan_monthly"
+    assert data["razorpay_plan_id_yearly"] == "rzp_plan_yearly"
+    assert data["workspace_limit"] == 10
+    assert data["survey_response_cap"] == 2000
+    assert data["survey_analytics"] == "Advanced"
+    assert data["storage_limit"] == 5000
+    assert "razorpay_key_id" not in data
+
+    monthly, yearly = calls["monthly"], calls["yearly"]
+    assert monthly["period"] == "monthly"
+    assert monthly["amount_paise"] == 79900
+    assert yearly["period"] == "yearly"
+    assert yearly["amount_paise"] == 799000
+    assert monthly["name"] == "Pro (Monthly)"
+    assert yearly["name"] == "Pro (Yearly)"
+    assert monthly["currency"] == "INR"
+    assert monthly["notes"] == {"plan_code": "pro", "billing_period": "monthly"}
+    assert monthly["key_id"] == "rzp_test_key"
+    assert monthly["key_secret"] == "secret"
+
+
+@pytest.mark.asyncio
+async def test_create_plan_with_razorpay_free_tier_skips_razorpay(
+    client: AsyncClient, admin_user: User, monkeypatch, db_session: AsyncSession
+):
+    import app.services.plan_service as plan_module
+
+    def _fail(**kwargs):
+        raise AssertionError("Razorpay should not be called for a free tier")
+
+    monkeypatch.setattr(plan_module.razorpay_service, "create_plan", _fail)
+    await _authenticate(admin_user)
+
+    response = await client.post(
+        "/api/v1/plan/with-razorpay",
+        json={"code": "free", "name": "Free", **_razorpay_credentials()},
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+    data = response.json()
+    assert data["razorpay_plan_id_monthly"] is None
+    assert data["razorpay_plan_id_yearly"] is None
+
+    stored = (
+        await db_session.execute(select(Plan).where(Plan.code == "free"))
+    ).scalar_one()
+    assert stored.razorpay_plan_id_monthly is None
+    assert stored.razorpay_plan_id_yearly is None
+
+
+@pytest.mark.asyncio
+async def test_create_plan_with_razorpay_failure_rolls_back(
+    client: AsyncClient, admin_user: User, monkeypatch, db_session: AsyncSession
+):
+    import app.services.plan_service as plan_module
+
+    seen = []
+
+    def _failing_create(**kwargs):
+        seen.append(kwargs["notes"]["billing_period"])
+        if kwargs["notes"]["billing_period"] == "yearly":
+            raise RuntimeError("Razorpay is down")
+        return {"id": "rzp_plan_monthly"}
+
+    monkeypatch.setattr(plan_module.razorpay_service, "create_plan", _failing_create)
+    await _authenticate(admin_user)
+
+    response = await client.post(
+        "/api/v1/plan/with-razorpay",
+        json={
+            "code": "enterprise",
+            "name": "Enterprise",
+            "price_monthly": 1499,
+            "price_yearly": 14990,
+            **_razorpay_credentials(),
+        },
+    )
+    assert response.status_code == status.HTTP_502_BAD_GATEWAY
+
+    assert seen == ["monthly", "yearly"]
+    stored = (await db_session.execute(
+        select(Plan).where(Plan.code == "enterprise")
+    )).scalar_one_or_none()
+    assert stored is None
+
+
+@pytest.mark.asyncio
+async def test_create_plan_with_razorpay_requires_admin(
+    client: AsyncClient, normal_user: User
+):
+    await _authenticate(normal_user)
+    response = await client.post(
+        "/api/v1/plan/with-razorpay",
+        json={"code": "pro", "name": "Pro", **_razorpay_credentials()},
+    )
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.asyncio
+async def test_create_plan_with_razorpay_missing_credentials(
+    client: AsyncClient, admin_user: User
+):
+    await _authenticate(admin_user)
+    response = await client.post(
+        "/api/v1/plan/with-razorpay",
+        json={"code": "pro", "name": "Pro"},
+    )
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
 # ── Update / activate-deactivate ─────────────────────────────────────────────
 
 @pytest.mark.asyncio
