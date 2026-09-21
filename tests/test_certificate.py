@@ -140,7 +140,7 @@ async def test_generate_certificate_embeds_certificate_metadata():
     assert "01 September 2026" in text
 
 
-# ── API tests: GET /{workspace_id}/certificate ──────────────────────────────
+# ── API tests: POST /{workspace_id}/certificate ─────────────────────────────
 
 @pytest.mark.asyncio
 async def test_download_certificate_returns_pdf(client: AsyncClient, db_session: AsyncSession):
@@ -154,7 +154,10 @@ async def test_download_certificate_returns_pdf(client: AsyncClient, db_session:
     )
     authenticate_as(user)
 
-    resp = await client.get(f"/api/v1/workspaces/{workspace.id}/certificate")
+    resp = await client.post(
+        f"/api/v1/workspaces/{workspace.id}/certificate",
+        json={"name": "John Doe"},
+    )
     assert resp.status_code == status.HTTP_200_OK
     assert resp.headers["content-type"] == "application/pdf"
     assert resp.content[:5] == b"%PDF-"
@@ -175,7 +178,7 @@ async def test_download_certificate_uses_email_prefix_when_no_display_name(
     )
     authenticate_as(user)
 
-    resp = await client.get(f"/api/v1/workspaces/{workspace.id}/certificate")
+    resp = await client.post(f"/api/v1/workspaces/{workspace.id}/certificate", json={})
     assert resp.status_code == status.HTTP_200_OK
     assert resp.content[:5] == b"%PDF-"
 
@@ -194,7 +197,29 @@ async def test_download_certificate_uses_display_name_when_set(
     )
     authenticate_as(user)
 
-    resp = await client.get(f"/api/v1/workspaces/{workspace.id}/certificate")
+    resp = await client.post(f"/api/v1/workspaces/{workspace.id}/certificate", json={})
+    assert resp.status_code == status.HTTP_200_OK
+    assert resp.content[:5] == b"%PDF-"
+
+
+@pytest.mark.asyncio
+async def test_download_certificate_uses_custom_name_from_payload(
+    client: AsyncClient, db_session: AsyncSession,
+):
+    user = await create_test_user(db_session, username="john@example.com", display_name="Johnny")
+    workspace = await create_workspace(
+        db_session,
+        user_id=user.id,
+        name="Test Idea",
+        state="VALIDATED",
+        validation_result=SAMPLE_VALIDATION_RESULT,
+    )
+    authenticate_as(user)
+
+    resp = await client.post(
+        f"/api/v1/workspaces/{workspace.id}/certificate",
+        json={"name": "      custom   name   "},
+    )
     assert resp.status_code == status.HTTP_200_OK
     assert resp.content[:5] == b"%PDF-"
 
@@ -213,7 +238,7 @@ async def test_download_certificate_rejects_unvalidated_workspace(
     )
     authenticate_as(user)
 
-    resp = await client.get(f"/api/v1/workspaces/{workspace.id}/certificate")
+    resp = await client.post(f"/api/v1/workspaces/{workspace.id}/certificate", json={"name": "John"})
     assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
 
@@ -222,5 +247,5 @@ async def test_download_certificate_requires_auth(client: AsyncClient, db_sessio
     from main import app
     app.dependency_overrides.pop(get_current_user, None)
 
-    resp = await client.get("/api/v1/workspaces/1/certificate")
+    resp = await client.post("/api/v1/workspaces/1/certificate", json={"name": "John"})
     assert resp.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)

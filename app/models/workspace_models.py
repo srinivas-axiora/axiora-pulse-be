@@ -56,6 +56,16 @@ class ExportWorkspaceReportRequest(BaseModel):
     format: str = Field("pdf", description="Export format. PDF is the only supported report output.")
 
 
+class CertificateRequest(BaseModel):
+    """Payload for POST /api/v1/workspaces/{id}/certificate."""
+    name: Optional[str] = Field(
+        None,
+        min_length=1,
+        max_length=100,
+        description="Name to display on the certificate. Falls back to the user's display name/email prefix when omitted.",
+    )
+
+
 # ── Response Models ────────────────────────────────────────────────────────────
 
 class WorkspaceResponse(BaseModel):

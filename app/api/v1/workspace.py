@@ -24,6 +24,7 @@ Routes:
   POST   /api/v1/workspaces/{id}/reset             → reset_workspace_mentor
   GET    /api/v1/workspaces/{id}/reports/{agent}   → download_workspace_agent_report
   POST   /api/v1/workspaces/{id}/reports/export    → export_workspace_report
+  POST   /api/v1/workspaces/{id}/certificate       → download_certificate
 """
 from fastapi import APIRouter, Depends, Query, Request, Response, UploadFile, File, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +35,7 @@ from app.db.database import get_db
 from app.db.models import User
 from app.models.workspace_models import (
     CreateWorkspaceRequest,
+    CertificateRequest,
     DeleteAttachmentResponse,
     DeleteWorkspaceResponse,
     ExportWorkspaceReportRequest,
@@ -316,19 +318,25 @@ async def export_workspace_report(
 
 # ── Certificate of Completion ────────────────────────────────────────────────
 
-@router.get(
+@router.post(
     "/{workspace_id}/certificate",
     summary="Download Certificate of Completion for a validated workspace",
-    description="Generates and downloads a personalised Certificate of Completion PDF. The workspace must be in VALIDATED state.",
+    description="Generates and downloads a personalised Certificate of Completion PDF. The workspace must be in VALIDATED state. The name shown on the certificate can be supplied via the request body.",
 )
 @limiter.limit("10/minute")
 async def download_certificate(
     request: Request,
     workspace_id: int,
+    payload: CertificateRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await workspace_service.generate_certificate(workspace_id, current_user, db)
+    return await workspace_service.generate_certificate(
+        workspace_id,
+        current_user,
+        db,
+        display_name=payload.name,
+    )
 
 
 # ── Get Workspace Survey (Sub-resource Alias) ──────────────────────────────────

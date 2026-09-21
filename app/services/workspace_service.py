@@ -488,6 +488,7 @@ class WorkspaceService:
         workspace_id: int,
         current_user: User,
         db: AsyncSession,
+        display_name: str | None = None,
     ) -> Response:
         """Generate and download a Certificate of Completion for a validated workspace."""
         workspace = await self._fetch_owned_workspace(workspace_id, current_user, db)
@@ -498,9 +499,10 @@ class WorkspaceService:
                 detail=f"Workspace {workspace_id} has not been validated yet. Please run validation first."
             )
 
-        display_name = current_user.display_name
-        if not display_name:
-            display_name = current_user.username.split("@")[0]
+        if not display_name or not display_name.strip():
+            display_name = current_user.display_name
+            if not display_name:
+                display_name = current_user.username.split("@")[0]
         display_name = display_name.strip().title()
 
         issue_datetime = self._certificate_issue_datetime(workspace)
