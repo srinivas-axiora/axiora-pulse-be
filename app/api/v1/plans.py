@@ -5,6 +5,7 @@ Admin Plans management endpoints:
   GET  /api/v1/plans        → list all plan details (including inactive)
   GET  /api/v1/plan/{id}    → get a specific plan
   POST /api/v1/plan         → create a new plan
+  POST /api/v1/plan/with-razorpay → create a plan and auto-creates its Razorpay plans
   PUT  /api/v1/plan/{id}    → update a plan (also used to activate/deactivate)
 """
 import logging
@@ -17,6 +18,7 @@ from app.db.database import get_db
 from app.db.models import User
 from app.models.plan_models import (
     CreatePlanRequest,
+    CreatePlanWithRazorpayRequest,
     PlanListResponse,
     PlanResponse,
     UpdatePlanRequest,
@@ -71,6 +73,27 @@ async def create_plan(
 ) -> PlanResponse:
     logger.info("Creating plan code=%r", payload.code)
     return await plan_service.create_plan(payload, db)
+
+
+@router.post(
+    "/plan/with-razorpay",
+    response_model=PlanResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a plan and auto-create its Razorpay plans",
+    description=(
+        "Saves a new plan locally, creates the monthly and yearly Razorpay Plans "
+        "using the supplied Razorpay credentials, persists the returned plan ids, "
+        "and returns the complete plan. Free tiers (price 0) are not provisioned "
+        "in Razorpay."
+    ),
+)
+async def create_plan_with_razorpay(
+    payload: CreatePlanWithRazorpayRequest,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> PlanResponse:
+    logger.info("Creating plan with Razorpay code=%r", payload.code)
+    return await plan_service.create_plan_with_razorpay(payload, db)
 
 
 @router.put(

@@ -48,21 +48,72 @@ class RazorpayService:
     def total_count(self) -> int:
         return _DEFAULT_TOTAL_COUNT
 
-    def _get_client(self):
-        """Build (once) and return the Razorpay SDK client."""
+    def _get_client(self, key_id: str | None = None, key_secret: str | None = None):
+        """Build (once) and return the Razorpay SDK client.
+
+        When per-request credentials are supplied a fresh, uncached client is
+        built from them; otherwise the module-level environment credentials are
+        used (cacheing the singleton client on first use).
+        """
+        if key_id and key_secret:
+            return self._build_client(key_id, key_secret)
+
         if self._client is None:
             if not _KEY_ID or not _KEY_SECRET:
                 raise RuntimeError(
                     "Razorpay is not configured. Set RAZORPAY_KEY_ID and "
                     "RAZORPAY_KEY_SECRET in the environment."
                 )
-            import razorpay  # imported lazily so the app boots even without the dep installed
-
-            self._client = razorpay.Client(auth=(_KEY_ID, _KEY_SECRET))
-            self._client.set_app_details({"title": "Axiora Pulse", "version": "1.0.0"})
+            self._client = self._build_client(_KEY_ID, _KEY_SECRET)
         return self._client
 
+    @staticmethod
+    def _build_client(key_id: str, key_secret: str):
+        """Create a configured Razorpay SDK client."""
+        import razorpay  # imported lazily so the app boots even without the dep installed
+
+        client = razorpay.Client(auth=(key_id, key_secret))
+        client.set_app_details({"title": "Axiora Pulse", "version": "1.0.0"})
+        return client
+
     # ── Subscriptions ───────────────────────────────────────────────────────────
+
+    def create_plan(
+        self,
+        *,
+        name: str,
+        amount_paise: int,
+        currency: str,
+        description: str | None = None,
+        period: str = "monthly",
+        interval: int = 1,
+        notes: dict | None = None,
+        key_id: str | None = None,
+        key_secret: str | None = None,
+    ) -> dict:
+        """Create a single Razorpay Plan (monthly or yearly) and return the SDK dict.
+
+        ``key_id``/``key_secret`` override the environment credentials when the
+        admin provisions a plan against a different Razorpay account.
+        """
+        client = self._get_client(key_id, key_secret)
+        payload: dict = {
+            "period": period,  # "monthly" | "yearly"
+            "interval": interval,
+            "item": {
+                "name": name,
+                "amount": amount_paise,
+                "currency": currency,
+                "description": description or name,
+            },
+        }
+        if notes:
+            payload["notes"] = notes
+        logger.info(
+            "Creating Razorpay plan: period=%s amount=%s %s",
+            period, amount_paise, currency,
+        )
+        return client.plan.create(payload)
 
     def create_subscription(
         self,

@@ -15,9 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Plan
 from app.models.plan_models import (
     CreatePlanRequest,
+    CreatePlanWithRazorpayRequest,
     PlanResponse,
     UpdatePlanRequest,
 )
+from app.services.razorpay_service import razorpay_service
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +43,97 @@ class PlanService:
         self, payload: CreatePlanRequest, db: AsyncSession
     ) -> PlanResponse:
         """Persist a new plan."""
+        plan = self._build_plan(payload)
+        db.add(plan)
+        try:
+            await db.flush()
+        except IntegrityError:
+            await db.rollback()
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"A plan with code '{payload.code.strip()}' already exists.",
+            )
+        await db.refresh(plan)
+        logger.info("Plan created: id=%s code=%r", plan.id, plan.code)
+        return PlanResponse.model_validate(plan)
+
+    async def create_plan_with_razorpay(
+        self,
+        payload: CreatePlanWithRazorpayRequest,
+        db: AsyncSession,
+    ) -> PlanResponse:
+        """Persist a new plan and auto-create its monthly/yearly Razorpay plans.
+
+        The local row and the Razorpay plans are treated as one unit of work:
+        if either Razorpay call fails the whole transaction is rolled back so
+        no partial plan is left behind. Free tiers (price 0) get no Razorpay
+        plan, mirroring ``scratch/seed_razorpay_plans.py``.
+        """
+        plan = self._build_plan(payload)
+        db.add(plan)
+        try:
+            await db.flush()
+        except IntegrityError:
+            await db.rollback()
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"A plan with code '{payload.code.strip()}' already exists.",
+            )
+
+        try:
+            if plan.price_monthly > 0:
+                created = razorpay_service.create_plan(
+                    name=f"{plan.name} (Monthly)",
+                    amount_paise=plan.price_monthly * 100,
+                    currency=plan.currency or "INR",
+                    description=plan.description or plan.name,
+                    period="monthly",
+                    interval=1,
+                    notes={"plan_code": plan.code, "billing_period": "monthly"},
+                    key_id=payload.razorpay_key_id,
+                    key_secret=payload.razorpay_key_secret,
+                )
+                plan.razorpay_plan_id_monthly = created["id"]
+
+            if plan.price_yearly > 0:
+                created = razorpay_service.create_plan(
+                    name=f"{plan.name} (Yearly)",
+                    amount_paise=plan.price_yearly * 100,
+                    currency=plan.currency or "INR",
+                    description=plan.description or plan.name,
+                    period="yearly",
+                    interval=1,
+                    notes={"plan_code": plan.code, "billing_period": "yearly"},
+                    key_id=payload.razorpay_key_id,
+                    key_secret=payload.razorpay_key_secret,
+                )
+                plan.razorpay_plan_id_yearly = created["id"]
+
+            await db.flush()
+        except Exception as exc:
+            plan_code = plan.code
+            await db.rollback()
+            logger.error(
+                "Razorpay plan provisioning failed for code=%r: %s",
+                plan_code, exc,
+            )
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                f"Failed to create Razorpay plans for '{plan_code}': {exc}",
+            )
+
+        await db.refresh(plan)
+        logger.info(
+            "Plan created with Razorpay ids: id=%s code=%r monthly=%s yearly=%s",
+            plan.id, plan.code, plan.razorpay_plan_id_monthly, plan.razorpay_plan_id_yearly,
+        )
+        return PlanResponse.model_validate(plan)
+
+    @staticmethod
+    def _build_plan(payload: CreatePlanRequest) -> Plan:
+        """Construct (unpersisted) Plan from any plan request payload."""
         now = datetime.now(timezone.utc)
-        plan = Plan(
+        return Plan(
             code=payload.code.strip(),
             name=payload.name.strip(),
             description=payload.description.strip() if payload.description else None,
@@ -65,18 +156,6 @@ class PlanService:
             created_at=now,
             updated_at=now,
         )
-        db.add(plan)
-        try:
-            await db.flush()
-        except IntegrityError:
-            await db.rollback()
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                f"A plan with code '{payload.code.strip()}' already exists.",
-            )
-        await db.refresh(plan)
-        logger.info("Plan created: id=%s code=%r", plan.id, plan.code)
-        return PlanResponse.model_validate(plan)
 
     async def update_plan(
         self,
