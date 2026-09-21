@@ -37,7 +37,6 @@ logger = logging.getLogger(__name__)
     description="Returns every plan (active and inactive), ordered by tier.",
 )
 async def list_plans(
-    _: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> PlanListResponse:
     plans = await plan_service.list_plans(db)
@@ -53,7 +52,6 @@ async def list_plans(
 )
 async def get_plan(
     plan_id: int = Path(..., ge=1, description="ID of the plan to fetch"),
-    _: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> PlanResponse:
     return await plan_service.get_plan(plan_id, db)
