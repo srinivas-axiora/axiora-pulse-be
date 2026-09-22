@@ -30,7 +30,7 @@ class PlanOut(BaseModel):
     name: str
     priceMonthly: int = Field(..., description="Monthly price in whole rupees")
     priceYearly: int = Field(..., description="Yearly price in whole rupees")
-    features: List[str] = Field(default_factory=list)
+    oldPrice: Optional[int] = Field(None, description="Pre-discount monthly price, strikethrough")
     description: Optional[str] = Field(None, description="Short tagline shown under the price")
     popular: bool = Field(False, description="Whether to visually highlight this plan as recommended")
 
@@ -80,7 +80,6 @@ class AccountStatusOut(BaseModel):
     priceMonthly: Optional[int] = Field(None, description="Monthly price of the current plan in whole rupees")
     priceYearly: Optional[int] = Field(None, description="Yearly price of the current plan in whole rupees")
     currency: Optional[str] = Field(None, description="Plan currency, e.g. 'INR'")
-    features: Optional[List[str]] = Field(None, description="Feature list of the current plan (e.g. '3 Workspaces')")
     workspaceLimit: Optional[int] = Field(None, description="Workspaces included in the plan")
     responseCap: Optional[int] = Field(None, description="Survey responses included in the plan")
     storageLimitMB: Optional[int] = Field(None, description="Storage allowance in MB")

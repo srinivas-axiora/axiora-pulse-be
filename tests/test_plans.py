@@ -190,7 +190,6 @@ async def test_create_plan_with_razorpay_success(
             "price_monthly": 799,
             "price_yearly": 7990,
             "currency": "INR",
-            "features": ["a", "b"],
             "tier": 1,
             "workspace_limit": 10,
             "survey_response_cap": 2000,

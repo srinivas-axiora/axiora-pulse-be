@@ -23,8 +23,8 @@ class CreatePlanRequest(BaseModel):
     razorpay_plan_id_yearly: str | None = Field(default=None, max_length=255)
     price_monthly: int = Field(default=0, ge=0)
     price_yearly: int = Field(default=0, ge=0)
+    old_price: int | None = Field(default=None, ge=0, description="Pre-discount monthly price shown as strikethrough")
     currency: str = Field(default="INR", max_length=3)
-    features: list[str] = Field(default_factory=list)
     tier: int = Field(default=0, ge=0, description="Gating rank: free=0, pro=1, ...")
     workspace_limit: int | None = Field(default=None, ge=0)
     survey_response_cap: int | None = Field(default=None, ge=0)
@@ -69,8 +69,8 @@ class UpdatePlanRequest(BaseModel):
     razorpay_plan_id_yearly: str | None = Field(default=None, max_length=255)
     price_monthly: int | None = Field(default=None, ge=0)
     price_yearly: int | None = Field(default=None, ge=0)
+    old_price: int | None = Field(default=None, ge=0)
     currency: str | None = Field(default=None, max_length=3)
-    features: list[str] | None = None
     tier: int | None = Field(default=None, ge=0)
     workspace_limit: int | None = Field(default=None, ge=0)
     survey_response_cap: int | None = Field(default=None, ge=0)
@@ -94,8 +94,8 @@ class PlanResponse(BaseModel):
     razorpay_plan_id_yearly: str | None
     price_monthly: int
     price_yearly: int
+    old_price: int | None
     currency: str
-    features: list[str]
     tier: int
     workspace_limit: int | None
     survey_response_cap: int | None

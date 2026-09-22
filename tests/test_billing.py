@@ -47,7 +47,6 @@ async def _create_plan(db: AsyncSession, code="pro", rzp_monthly="rzp_plan_m", r
         razorpay_plan_id_yearly=rzp_yearly,
         price_monthly=499,
         price_yearly=4990,
-        features=["a", "b"],
         tier=tier,
         popular=True,
         is_active=is_active,
@@ -104,7 +103,6 @@ async def test_list_plans_returns_active_plans_ordered(db_session: AsyncSession)
 
     assert [p.id for p in plans] == ["free", "pro"]
     assert plans[0].priceMonthly == 499
-    assert plans[0].features == ["a", "b"]
     assert plans[0].popular is True
 
 
@@ -767,7 +765,7 @@ async def test_api_cancel_no_subscription(client: AsyncClient, db_session: Async
 async def test_api_select_free_plan_creates_baseline(client: AsyncClient, db_session: AsyncSession):
     user = await _create_user(db_session)
     db_session.add(Plan(code="starter", name="Starter", price_monthly=0, price_yearly=0,
-                        features=[], tier=0, is_active=True))
+                        tier=0, is_active=True))
     await db_session.commit()
     authenticate_as(user)
     resp = await client.post("/api/billing/subscription/starter")
@@ -782,7 +780,7 @@ async def test_api_select_free_plan_creates_baseline(client: AsyncClient, db_ses
 async def test_api_select_free_plan_is_idempotent(client: AsyncClient, db_session: AsyncSession):
     user = await _create_user(db_session)
     db_session.add(Plan(code="starter", name="Starter", price_monthly=0, price_yearly=0,
-                        features=[], tier=0, is_active=True))
+                        tier=0, is_active=True))
     await db_session.commit()
     authenticate_as(user)
     await client.post("/api/billing/subscription/starter")
@@ -795,7 +793,7 @@ async def test_api_select_free_plan_is_idempotent(client: AsyncClient, db_sessio
 async def test_api_select_free_plan_rejects_paid(client: AsyncClient, db_session: AsyncSession):
     user = await _create_user(db_session)
     db_session.add(Plan(code="builder", name="Builder", price_monthly=299, price_yearly=0,
-                        features=[], tier=2, is_active=True))
+                        tier=2, is_active=True))
     await db_session.commit()
     authenticate_as(user)
     resp = await client.post("/api/billing/subscription/builder")
@@ -824,7 +822,7 @@ async def test_select_free_plan_starts_trial(db_session: AsyncSession):
     from app.services.entitlements_service import entitlements_service
     user = await _create_user(db_session, role_name="viewer")
     db_session.add(Plan(code="starter", name="Starter", price_monthly=0, price_yearly=0,
-                        features=[], tier=0, is_active=True))
+                        tier=0, is_active=True))
     await db_session.commit()
     await billing_service.select_free_plan("starter", user, db_session)
     row = await entitlements_service.get(user.id, db_session)
@@ -905,7 +903,6 @@ async def test_api_account_status_active_paid_details(client: AsyncClient, db_se
     assert data["plan"] == "builder"
     assert data["priceMonthly"] == 499
     assert data["billingPeriod"] == "monthly"
-    assert data["features"] == ["a", "b"]
     assert data["workspaceLimit"] == 3
     assert data["responseCap"] == 500
     assert data["storageLimitMB"] == 500
@@ -927,7 +924,6 @@ async def test_api_account_status_none_excludes_missing(client: AsyncClient, db_
     data = resp.json()["data"]
     assert data["status"] == "none"
     assert "priceMonthly" not in data
-    assert "features" not in data
     assert "storageLimitMB" not in data
     assert "currentEnd" not in data
     assert data["usedResponses"] == 0
