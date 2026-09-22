@@ -50,6 +50,12 @@ _NON_TERMINAL = {"created", "authenticated", "active", "pending", "halted"}
 # subscription counts as paid — 'authenticated' means checkout was authorized but
 # the charge hasn't been confirmed, so a mid-payment user is still routed to pay.
 _ENTITLED = {"active"}
+# Statuses that represent a committed subscription and must block creating another
+# one (guards against double billing). A user who is 'active' is subscribed;
+# 'authenticated' means the mandate is set up and the first charge is imminent.
+# Everything else in _NON_TERMINAL ('created'/'pending'/'halted') is a stale or
+# failed attempt that should NOT permanently block a retry.
+_BLOCKING = {"active", "authenticated"}
 # Terminal / churned statuses — the paid relationship has ended (payment retries
 # exhausted, cancelled, run to completion, or expired). When a user's last entitled
 # subscription reaches one of these, their 'member' role is revoked to 'viewer'.
@@ -184,19 +190,43 @@ class BillingService:
                 f"Plan '{plan_code}' ({billing_period}) is not yet configured with a Razorpay plan id.",
             )
 
-        # Block a second live subscription for the same user.
-        existing = (
+        # Reconcile any prior non-terminal subscriptions before creating a new one.
+        # Only a *committed* subscription (active/authenticated) blocks a second one
+        # — that is the real guard against double billing. A stale or failed attempt
+        # ('created'/'pending'/'halted', e.g. the user closed the checkout modal or
+        # a card was declined) must NOT lock the user out of trying again, so we
+        # cancel it (best-effort on Razorpay) and mark it cancelled locally.
+        existing_subs = (
             await db.execute(
                 select(Subscription)
                 .where(Subscription.user_id == user.id, Subscription.status.in_(_NON_TERMINAL))
                 .order_by(Subscription.created_at.desc())
             )
-        ).scalars().first()
-        if existing is not None:
+        ).scalars().all()
+
+        if any(sub.status in _BLOCKING for sub in existing_subs):
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
-                "You already have an active or pending subscription.",
+                "You already have an active subscription.",
             )
+
+        for sub in existing_subs:
+            # Not committed → a stale/failed attempt; retire it so the retry is clean.
+            try:
+                razorpay_service.cancel_subscription(
+                    sub.razorpay_subscription_id, cancel_at_cycle_end=False
+                )
+            except Exception:
+                # Already gone / uncancellable on Razorpay's side — the local status
+                # update below is what actually unblocks the user.
+                logger.warning(
+                    "Could not cancel stale subscription %s on Razorpay; "
+                    "marking it cancelled locally.",
+                    sub.razorpay_subscription_id,
+                )
+            sub.status = "cancelled"
+        if existing_subs:
+            await db.flush()
 
         try:
             rzp_sub = razorpay_service.create_subscription(
