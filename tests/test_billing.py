@@ -177,6 +177,78 @@ async def test_create_subscription_blocks_duplicate_active(db_session: AsyncSess
 
 
 @pytest.mark.asyncio
+async def test_create_subscription_blocks_duplicate_authenticated(db_session: AsyncSession):
+    # A committed (mandate-authorized) subscription also blocks a second one.
+    user = await _create_user(db_session)
+    plan = await _create_plan(db_session)
+    await _create_subscription(db_session, user, plan, status="authenticated", rzp_sub_id="sub_auth")
+    await db_session.commit()
+
+    with patch.object(razorpay_service, "create_subscription") as m:
+        with pytest.raises(Exception) as exc:
+            await billing_service.create_subscription("pro", "monthly", user, db_session)
+    assert exc.value.status_code == 409
+    m.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_create_subscription_replaces_stale_created(db_session: AsyncSession):
+    # A stale 'created' attempt (abandoned checkout) must be retired, not block a retry.
+    user = await _create_user(db_session)
+    plan = await _create_plan(db_session)
+    stale = await _create_subscription(db_session, user, plan, status="created", rzp_sub_id="sub_stale")
+    await db_session.commit()
+
+    with patch.object(
+        razorpay_service,
+        "create_subscription",
+        return_value={"id": "sub_fresh", "status": "created", "short_url": "https://rzp"},
+    ), patch.object(
+        razorpay_service, "cancel_subscription", return_value={}
+    ) as cancel_mock, patch.object(
+        type(razorpay_service), "key_id", new_callable=PropertyMock, return_value="rzp_test_key"
+    ):
+        out = await billing_service.create_subscription("pro", "monthly", user, db_session)
+
+    assert out.subscriptionId == "sub_fresh"
+    cancel_mock.assert_called_once_with("sub_stale", cancel_at_cycle_end=False)
+
+    await db_session.refresh(stale)
+    assert stale.status == "cancelled"
+    fresh = (
+        await db_session.execute(
+            select(Subscription).where(Subscription.razorpay_subscription_id == "sub_fresh")
+        )
+    ).scalar_one()
+    assert fresh.status == "created"
+
+
+@pytest.mark.asyncio
+async def test_create_subscription_replaces_stale_even_if_rzp_cancel_fails(db_session: AsyncSession):
+    # If Razorpay can't cancel the stale sub, we still retire it locally so the user
+    # is never permanently locked out.
+    user = await _create_user(db_session)
+    plan = await _create_plan(db_session)
+    stale = await _create_subscription(db_session, user, plan, status="pending", rzp_sub_id="sub_pending")
+    await db_session.commit()
+
+    with patch.object(
+        razorpay_service,
+        "create_subscription",
+        return_value={"id": "sub_fresh2", "status": "created", "short_url": None},
+    ), patch.object(
+        razorpay_service, "cancel_subscription", side_effect=RuntimeError("already gone")
+    ), patch.object(
+        type(razorpay_service), "key_id", new_callable=PropertyMock, return_value="rzp_test_key"
+    ):
+        out = await billing_service.create_subscription("pro", "monthly", user, db_session)
+
+    assert out.subscriptionId == "sub_fresh2"
+    await db_session.refresh(stale)
+    assert stale.status == "cancelled"
+
+
+@pytest.mark.asyncio
 async def test_create_subscription_razorpay_unconfigured(db_session: AsyncSession):
     user = await _create_user(db_session)
     await _create_plan(db_session)
