@@ -681,8 +681,8 @@ class Plan(Base):
     razorpay_plan_id_yearly: Mapped[str | None] = mapped_column(String(255), nullable=True)
     price_monthly: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     price_yearly: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    old_price: Mapped[int | None] = mapped_column(Integer, nullable=True)  # pre-discount (strikethrough) monthly price
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR")
-    features: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     tier: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # gating rank: free=0, pro=1, ...
 
     # ── Per-plan quota limits (Phase-1 entitlements) ──────────────────────────

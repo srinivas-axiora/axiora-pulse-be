@@ -339,11 +339,11 @@ class FeedbackQuestionnaireService:
         if date_to is not None:
             filters.append(UserFeedbackQuestionnaire.submission_date <= date_to)
 
-        # The pagination total is the number of USERS who submitted feedback, not
-        # the number of answered-question rows (one user submitting N questions is
-        # still a single response).
+        # The pagination total is the number of WORKSPACES with submitted feedback,
+        # not the number of answered-question rows (one workspace submitting N
+        # questions is still a single response).
         total_statement = (
-            select(func.count(func.distinct(UserFeedbackQuestionnaire.user_id)))
+            select(func.count(func.distinct(UserFeedbackQuestionnaire.workspace_id)))
             .join(User, User.id == UserFeedbackQuestionnaire.user_id)
             .outerjoin(
                 FeedbackQuestionnaire,

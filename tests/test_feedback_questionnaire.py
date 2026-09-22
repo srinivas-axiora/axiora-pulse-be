@@ -649,12 +649,13 @@ async def test_list_user_feedback_with_filters(
 
     await _authenticate(admin_user)
 
-    # All — total counts the number of USERS who submitted (2), while the listing
-    # still returns one row per answered question (3).
+    # All — total counts the number of WORKSPACES with feedback (1 here: every
+    # row belongs to the same workspace), while the listing still returns one row
+    # per answered question (3).
     response = await client.get("/api/v1/user-feedback")
     assert response.status_code == status.HTTP_200_OK
     data = response.json()
-    assert data["pagination"]["total"] == 2
+    assert data["pagination"]["total"] == 1
     assert len(data["feedback"]) == 3
 
     # Filter by user_id
@@ -674,17 +675,17 @@ async def test_list_user_feedback_with_filters(
     assert data["pagination"]["total"] == 1
     assert data["feedback"][0]["question"] == "Suggestion"
 
-    # Date range — both January rows are from the SAME user, so total is 1 user.
+    # Date range — both January rows are in the SAME workspace, so total is 1 workspace.
     response = await client.get("/api/v1/user-feedback?date_from=2026-01-01T00:00:00&date_to=2026-01-31T00:00:00")
     data = response.json()
     assert data["pagination"]["total"] == 1
     assert len(data["feedback"]) == 2
 
-    # Pagination — total is the distinct-user count, unaffected by limit/offset.
+    # Pagination — total is the distinct-workspace count, unaffected by limit/offset.
     response = await client.get("/api/v1/user-feedback?limit=2&offset=0")
     data = response.json()
     assert len(data["feedback"]) == 2
-    assert data["pagination"]["total"] == 2
+    assert data["pagination"]["total"] == 1
     assert data["pagination"]["limit"] == 2
     assert data["pagination"]["offset"] == 0
 

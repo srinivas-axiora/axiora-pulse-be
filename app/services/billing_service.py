@@ -123,7 +123,7 @@ class BillingService:
                 name=p.name,
                 priceMonthly=p.price_monthly,
                 priceYearly=p.price_yearly,
-                features=p.features or [],
+                oldPrice=p.old_price,
                 description=p.description,
                 popular=p.popular,
             )
@@ -620,7 +620,6 @@ class BillingService:
             priceMonthly=plan.price_monthly if plan else None,
             priceYearly=plan.price_yearly if plan else None,
             currency=plan.currency if plan else None,
-            features=list(plan.features) if plan else None,
             workspaceLimit=plan.workspace_limit if plan else None,
             responseCap=plan.survey_response_cap if plan else None,
             storageLimitMB=plan.storage_limit if plan else None,
