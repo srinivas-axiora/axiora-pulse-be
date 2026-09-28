@@ -10,6 +10,8 @@ ReDoc:        http://localhost:8000/redoc
 Health:       http://localhost:8000/health
 """
 import logging
+import asyncio
+from contextlib import suppress
 import os
 import time
 from contextlib import asynccontextmanager
@@ -76,11 +78,13 @@ async def lifespan(app: FastAPI):
     _validate_security_config()
 
     # Apply any pending DB migrations (Alembic upgrade head)
+    database_ready = False
     try:
         await run_migrations()
         # Seed default admin user account
         async with AsyncSessionLocal() as session:
             await seed_admin_user(session)
+        database_ready = True
     except Exception as exc:
         logger.error("⚠ Database initialization/migration failed: %s", exc)
         logger.warning("⚠ Server starting in degraded mode. Docs and non-DB endpoints remain accessible.")
@@ -110,7 +114,15 @@ async def lifespan(app: FastAPI):
     logger.info(f"  Health →  http://localhost:8000/health")
     logger.info("=" * 60)
 
-    yield  # ← Application runs here
+    from app.workers.ticket_notifications import run_ticket_notifications
+    notification_worker = asyncio.create_task(run_ticket_notifications()) if database_ready else None
+    try:
+        yield
+    finally:
+        if notification_worker is not None:
+            notification_worker.cancel()
+            with suppress(asyncio.CancelledError):
+                await notification_worker
 
     # ── SHUTDOWN ────────────────────────────────────────────────────────────────
     logger.info(f"Shutting down {APP_NAME}…")

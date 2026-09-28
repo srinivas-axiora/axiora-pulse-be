@@ -1,267 +1,161 @@
-import json
-import os
-from typing import List, Optional
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+﻿"""Authenticated tickets with atomic action history and email outbox."""
+from copy import deepcopy
+from datetime import datetime, timezone
+from typing import Literal
+from uuid import uuid4
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.dependencies import get_current_user, require_admin
+from app.db.database import get_db
+from app.db.models import SupportTicket, SupportTicketEvent, User
 
 router = APIRouter(prefix="/tickets", tags=["Support Tickets"])
 
-DATA_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "tickets.json")
-
-def _load_tickets() -> list:
-    if not os.path.exists(DATA_FILE):
-        return []
-    try:
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return []
-
-def _save_tickets(tickets: list) -> None:
-    os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(tickets, f, indent=2)
-
-class UserInfo(BaseModel):
-    id: Optional[str] = "user-guest"
-    name: Optional[str] = "User"
-    email: Optional[str] = "user@example.com"
-
 class CreateTicketPayload(BaseModel):
-    category: str
-    subject: str
-    description: str
-    priority: Optional[str] = "Medium"
-    attachmentName: Optional[str] = None
-    user: UserInfo
+    category: str = Field(min_length=1, max_length=100)
+    subject: str = Field(min_length=1, max_length=255)
+    description: str = Field(min_length=1, max_length=20000)
+    priority: Literal["Low", "Medium", "High"] = "Medium"
+    attachmentName: str | None = Field(default=None, max_length=255)
 
 class ReplyPayload(BaseModel):
-    message: str
-    attachmentName: Optional[str] = None
-    sender: UserInfo
-    senderRole: str  # "user" or "admin"
+    message: str = Field(min_length=1, max_length=20000)
+    attachmentName: str | None = Field(default=None, max_length=255)
 
 class NotePayload(BaseModel):
-    note: str
-    admin: UserInfo
+    note: str = Field(min_length=1, max_length=20000)
 
 class StatusPayload(BaseModel):
-    status: str
-    adminName: str
+    status: Literal["Open", "In Progress", "Resolved", "Closed"]
 
 class AssignPayload(BaseModel):
-    agentName: str
-    adminName: str
+    agentName: str = Field(min_length=1, max_length=100, pattern=r"\S")
 
+def _name(user):
+    return user.display_name or user.username
 
-@router.get("")
-async def get_tickets(
-    user_id: Optional[str] = Query(None),
-    user_email: Optional[str] = Query(None),
-):
-    tickets = _load_tickets()
-    if user_id or user_email:
-        filtered = []
-        for t in tickets:
-            match_id = user_id and str(t.get("userId")) == str(user_id)
-            match_email = (
-                user_email
-                and str(t.get("userEmail", "")).lower() == str(user_email).lower()
-            )
-            if match_id or match_email:
-                filtered.append(t)
-        return filtered
-    return tickets
+def _visible(ticket, user):
+    data = deepcopy(ticket.data)
+    if not user.has_role("admin"):
+        data["internalNotes"] = []
+    return data
 
+async def _ticket(ticket_id, user, db):
+    ticket = (await db.execute(select(SupportTicket).where(SupportTicket.id == ticket_id).with_for_update())).scalar_one_or_none()
+    if ticket is None or (not user.has_role("admin") and ticket.user_id != user.id and not (
+        ticket.user_id is None and ticket.user_email == user.username.lower()
+    )):
+        raise HTTPException(404, "Ticket not found")
+    return ticket
 
-@router.post("")
-async def create_ticket(payload: CreateTicketPayload):
-    tickets = _load_tickets()
-    counter = 1001 + len(tickets)
-    ticket_id = f"TCK-{counter}"
-    import datetime
-    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-
-    new_ticket = {
-        "id": ticket_id,
-        "userId": str(payload.user.id or "user-guest"),
-        "userName": payload.user.name or "User",
-        "userEmail": payload.user.email or "user@example.com",
-        "category": payload.category,
-        "subject": payload.subject,
-        "description": payload.description,
-        "attachmentName": payload.attachmentName,
-        "priority": payload.priority or "Medium",
-        "status": "Open",
-        "createdAt": now,
-        "updatedAt": now,
-        "unreadByUser": False,
-        "unreadByAdmin": True,
-        "messages": [
-            {
-                "id": f"msg-{int(datetime.datetime.now().timestamp() * 1000)}",
-                "senderId": str(payload.user.id or "user-guest"),
-                "senderName": payload.user.name or "User",
-                "senderEmail": payload.user.email or "user@example.com",
-                "senderRole": "user",
-                "message": payload.description,
-                "timestamp": now,
-                "attachmentName": payload.attachmentName,
-            }
-        ],
-        "internalNotes": [],
+def _message(user, text, *, system=False, attachment=None):
+    return {
+        "id": str(uuid4()), "senderId": "system" if system else str(user.id),
+        "senderName": "System" if system else _name(user),
+        "senderEmail": "" if system else user.username,
+        "senderRole": "admin" if user.has_role("admin") else "user",
+        "message": text, "timestamp": datetime.now(timezone.utc).isoformat(),
+        "attachmentName": attachment,
     }
 
-    tickets.insert(0, new_ticket)
-    _save_tickets(tickets)
-    return new_ticket
+async def _save(ticket, data, user, db, action, details, notification=None):
+    now = datetime.now(timezone.utc)
+    data["updatedAt"] = now.isoformat()
+    ticket.data = data
+    ticket.updated_at = now
+    payload = None
+    if notification is not None:
+        payload = {"ticket_id": ticket.id, "subject": data["subject"],
+                   "display_name": data["userName"], "update": notification}
+    db.add(SupportTicketEvent(
+        ticket_id=ticket.id, actor_id=user.id, action=action,
+        details={**details, "actorName": _name(user)},
+        recipient=ticket.user_email if payload else None, email_payload=payload,
+        email_status="pending" if payload else "not_required",
+    ))
+    # Commit the action and outbox together before returning success.
+    await db.commit()
+    return _visible(ticket, user)
 
+@router.get("")
+async def get_tickets(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    query = select(SupportTicket).order_by(SupportTicket.updated_at.desc())
+    if not user.has_role("admin"):
+        query = query.where(or_(SupportTicket.user_id == user.id,
+            (SupportTicket.user_id.is_(None)) & (SupportTicket.user_email == user.username.lower())))
+    return [_visible(t, user) for t in (await db.execute(query)).scalars()]
+
+@router.post("")
+async def create_ticket(payload: CreateTicketPayload, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    now = datetime.now(timezone.utc)
+    ticket_id = f"TCK-{uuid4().hex}"
+    data = {**payload.model_dump(), "id": ticket_id, "userId": str(user.id),
+            "userName": _name(user), "userEmail": user.username, "status": "Open",
+            "createdAt": now.isoformat(), "updatedAt": now.isoformat(),
+            "unreadByUser": False, "unreadByAdmin": True,
+            "messages": [_message(user, payload.description, attachment=payload.attachmentName)],
+            "internalNotes": []}
+    ticket = SupportTicket(id=ticket_id, user_id=user.id, user_email=user.username.lower(), data=data)
+    db.add(ticket)
+    await db.flush()
+    return await _save(ticket, data, user, db, "created", {})
 
 @router.post("/{ticket_id}/reply")
-async def add_reply(ticket_id: str, payload: ReplyPayload):
-    tickets = _load_tickets()
-    import datetime
-    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    msg_id = f"msg-{int(datetime.datetime.now().timestamp() * 1000)}"
-
-    found = None
-    for t in tickets:
-        if t["id"] == ticket_id:
-            found = t
-            t["updatedAt"] = now
-            if payload.senderRole == "admin":
-                t["unreadByUser"] = True
-                t["unreadByAdmin"] = False
-            else:
-                t["unreadByAdmin"] = True
-                t["unreadByUser"] = False
-
-            t["messages"].append({
-                "id": msg_id,
-                "senderId": str(payload.sender.id or "guest"),
-                "senderName": payload.sender.name or "Support",
-                "senderEmail": payload.sender.email or "support@axiorapulse.com",
-                "senderRole": payload.senderRole,
-                "message": payload.message,
-                "timestamp": now,
-                "attachmentName": payload.attachmentName,
-            })
-            break
-
-    if not found:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-
-    _save_tickets(tickets)
-    return found
-
+async def add_reply(ticket_id: str, payload: ReplyPayload, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    ticket = await _ticket(ticket_id, user, db)
+    data = deepcopy(ticket.data)
+    admin = user.has_role("admin")
+    data.update(unreadByUser=admin, unreadByAdmin=not admin)
+    data["messages"].append(_message(user, payload.message, attachment=payload.attachmentName))
+    return await _save(ticket, data, user, db, "admin_reply" if admin else "user_reply",
+                       {"message": payload.message, "attachmentName": payload.attachmentName},
+                       f"Our support team replied:\n\n{payload.message}" if admin else None)
 
 @router.post("/{ticket_id}/note")
-async def add_internal_note(ticket_id: str, payload: NotePayload):
-    tickets = _load_tickets()
-    import datetime
-    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    note_id = f"note-{int(datetime.datetime.now().timestamp() * 1000)}"
-
-    found = None
-    for t in tickets:
-        if t["id"] == ticket_id:
-            found = t
-            t["internalNotes"].append({
-                "id": note_id,
-                "adminId": str(payload.admin.id or "admin-1"),
-                "adminName": payload.admin.name or "Support Admin",
-                "note": payload.note,
-                "timestamp": now,
-            })
-            break
-
-    if not found:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-
-    _save_tickets(tickets)
-    return found
-
+async def add_internal_note(ticket_id: str, payload: NotePayload, user: User = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    ticket = await _ticket(ticket_id, user, db)
+    data = deepcopy(ticket.data)
+    data["internalNotes"].append({"id": str(uuid4()), "adminId": str(user.id),
+        "adminName": _name(user), "note": payload.note, "timestamp": datetime.now(timezone.utc).isoformat()})
+    return await _save(ticket, data, user, db, "internal_note", {"note": payload.note})
 
 @router.patch("/{ticket_id}/status")
-async def update_status(ticket_id: str, payload: StatusPayload):
-    tickets = _load_tickets()
-    import datetime
-    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    msg_id = f"msg-status-{int(datetime.datetime.now().timestamp() * 1000)}"
-
-    found = None
-    for t in tickets:
-        if t["id"] == ticket_id:
-            found = t
-            t["status"] = payload.status
-            t["updatedAt"] = now
-            t["unreadByUser"] = True
-            t["messages"].append({
-                "id": msg_id,
-                "senderId": "system",
-                "senderName": "System",
-                "senderEmail": "",
-                "senderRole": "admin",
-                "message": f"Status changed to {payload.status} by {payload.adminName}",
-                "timestamp": now,
-            })
-            break
-
-    if not found:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-
-    _save_tickets(tickets)
-    return found
-
+async def update_status(ticket_id: str, payload: StatusPayload, user: User = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    ticket = await _ticket(ticket_id, user, db)
+    data = deepcopy(ticket.data)
+    old = data["status"]
+    if old == payload.status:
+        return _visible(ticket, user)
+    data.update(status=payload.status, unreadByUser=True)
+    text = f"Status changed from {old} to {payload.status}."
+    data["messages"].append(_message(user, f"{text} Updated by {_name(user)}", system=True))
+    return await _save(ticket, data, user, db, "status_changed", {"old": old, "new": payload.status}, text)
 
 @router.patch("/{ticket_id}/assign")
-async def assign_agent(ticket_id: str, payload: AssignPayload):
-    tickets = _load_tickets()
-    import datetime
-    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    msg_id = f"msg-assign-{int(datetime.datetime.now().timestamp() * 1000)}"
+async def assign_agent(ticket_id: str, payload: AssignPayload, user: User = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    ticket = await _ticket(ticket_id, user, db)
+    data = deepcopy(ticket.data)
+    old = data.get("assignedTo", "Unassigned")
+    agent = payload.agentName.strip()
+    if old == agent:
+        return _visible(ticket, user)
+    data.update(assignedTo=agent, unreadByUser=True)
+    text = "Your ticket is awaiting assignment." if agent == "Unassigned" else f"Your ticket has been assigned to {agent}."
+    data["messages"].append(_message(user, f"{text} Updated by {_name(user)}", system=True))
+    return await _save(ticket, data, user, db, "assigned", {"old": old, "new": agent}, text)
 
-    found = None
-    for t in tickets:
-        if t["id"] == ticket_id:
-            found = t
-            t["assignedTo"] = payload.agentName
-            t["updatedAt"] = now
-            t["messages"].append({
-                "id": msg_id,
-                "senderId": "system",
-                "senderName": "System",
-                "senderEmail": "",
-                "senderRole": "admin",
-                "message": f"Ticket assigned to {payload.agentName} by {payload.adminName}",
-                "timestamp": now,
-            })
-            break
-
-    if not found:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-
-    _save_tickets(tickets)
-    return found
-
+async def _read(ticket_id, user, db, key):
+    ticket = await _ticket(ticket_id, user, db)
+    ticket.data = {**ticket.data, key: False}
+    await db.commit()
+    return {"status": "ok"}
 
 @router.patch("/{ticket_id}/read-user")
-async def mark_user_read(ticket_id: str):
-    tickets = _load_tickets()
-    for t in tickets:
-        if t["id"] == ticket_id:
-            t["unreadByUser"] = False
-            break
-    _save_tickets(tickets)
-    return {"status": "ok"}
-
+async def mark_user_read(ticket_id: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    return await _read(ticket_id, user, db, "unreadByUser")
 
 @router.patch("/{ticket_id}/read-admin")
-async def mark_admin_read(ticket_id: str):
-    tickets = _load_tickets()
-    for t in tickets:
-        if t["id"] == ticket_id:
-            t["unreadByAdmin"] = False
-            break
-    _save_tickets(tickets)
-    return {"status": "ok"}
+async def mark_admin_read(ticket_id: str, user: User = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    return await _read(ticket_id, user, db, "unreadByAdmin")

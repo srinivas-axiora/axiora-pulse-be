@@ -1,5 +1,5 @@
 """SQLAlchemy ORM models for users, workspace, agents, and orchestration system."""
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 import uuid
 
 
@@ -12,6 +12,36 @@ from app.core.timezone import now_ist
 
 class Base(DeclarativeBase):
     pass
+
+
+class SupportTicket(Base):
+    __tablename__ = "support_tickets"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    user_email: Mapped[str] = mapped_column(String(255), index=True)
+    data: Mapped[dict] = mapped_column(JSON, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class SupportTicketEvent(Base):
+    """Ticket audit trail and transactional email outbox. SMTP acceptance is recorded as sent."""
+
+    __tablename__ = "support_ticket_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    ticket_id: Mapped[str] = mapped_column(ForeignKey("support_tickets.id", ondelete="CASCADE"), index=True)
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    action: Mapped[str] = mapped_column(String(40))
+    details: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    recipient: Mapped[str | None] = mapped_column(String(255))
+    email_payload: Mapped[dict | None] = mapped_column(JSON)
+    email_status: Mapped[str] = mapped_column(String(20), default="not_required", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
 
 
 class User(Base):

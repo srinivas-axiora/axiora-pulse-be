@@ -63,6 +63,25 @@ _EMAIL_TIMEZONE = _resolve_email_timezone(os.getenv("EMAIL_TIMEZONE", "Asia/Kolk
 logger = logging.getLogger(__name__)
 
 
+async def send_ticket_update_email(to_email: str, ticket_id: str, subject: str,
+                                   display_name: str, update: str, event_id: str) -> "OTPResult":
+    """Send a user-visible ticket update using the existing SMTP transport."""
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"Ticket {ticket_id}: update"
+    msg["From"] = f"{_SMTP_FROM_NAME} <{_SMTP_FROM_EMAIL}>"
+    msg["To"] = to_email
+    msg["Message-ID"] = f"<ticket-{event_id}@axiorapulse.com>"
+    plain = f"Hello {display_name},\n\nTicket: {ticket_id}\nSubject: {subject}\n\n{update}\n\nSign in to view your support ticket.\n\nThe Axiora Pulse Team"
+    body = f'<tr><td><p>Hello {html.escape(display_name)},</p><p><strong>{html.escape(ticket_id)}</strong>: {html.escape(subject)}</p><p style="white-space:pre-wrap">{html.escape(update)}</p><p>Sign in to view your support ticket.</p></td></tr>'
+    msg.attach(MIMEText(plain, "plain", "utf-8"))
+    msg.attach(MIMEText(render_email_shell(preheader="Your support ticket has been updated", body_html=body), "html", "utf-8"))
+    try:
+        await asyncio.to_thread(_smtp_send, to_email, msg)
+        return OTPResult(success=True, channel="email")
+    except Exception as exc:
+        return OTPResult(success=False, channel="email", error=str(exc))
+
+
 # ── Result type ────────────────────────────────────────────────────────────────
 
 @dataclass

@@ -782,3 +782,41 @@ Current route limits:
 - **Webhook signature verification** — Razorpay webhooks are verified against `RAZORPAY_WEBHOOK_SECRET` before processing
 - **JWT secret** — the server refuses to start in production mode if `JWT_SECRET_KEY` is set to the insecure default value
 - **CORS** — permissive (`*`) in DEBUG mode only; restricted to `ALLOWED_ORIGINS` in production
+
+## Support ticket notifications
+
+Support tickets are stored in `support_tickets`. Migration `0043` imports the
+existing `data/tickets.json` once, preserving ticket IDs, messages, and private
+notes. Back up that file before applying the migration; it remains unchanged.
+The API now derives ticket ownership and administrator identity from the signed-in
+user. Users can only access their own tickets, and internal notes are admin-only.
+
+Admin assignments, unassignments, status changes (including Resolved and Closed),
+and replies enqueue an email to the ticket owner. Internal notes and read markers
+do not send email. Re-selecting the current status or assignee is a no-op.
+
+`support_ticket_events` captures each substantive action, actor, timestamp,
+old/new values or reply, recipient, and email state (`not_required`, `pending`,
+`sent`, `failed`). Ticket changes and pending email records commit together.
+The application polls the durable outbox every five seconds, using the existing
+SMTP configuration. Failed sends retry after 30 and 60 seconds; after three
+attempts the failure and its error remain available for investigation. Pending
+jobs survive restarts. `sent` means accepted by SMTP, not confirmed inbox delivery.
+A crash between SMTP acceptance and the database commit can result in a duplicate.
+
+Example delivery-history query:
+
+```sql
+SELECT ticket_id, action, actor_id, created_at, recipient,
+       email_status, attempts, sent_at, last_error
+FROM support_ticket_events
+ORDER BY created_at DESC;
+```
+
+After correcting an SMTP problem, an operator can explicitly retry a failed event:
+
+```sql
+UPDATE support_ticket_events
+SET email_status = 'pending', attempts = 0, next_attempt_at = CURRENT_TIMESTAMP
+WHERE id = '<event-id>' AND email_status = 'failed';
+```
