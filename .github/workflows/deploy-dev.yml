@@ -26,6 +26,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Set up SSH
         env:
           SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
@@ -35,6 +37,13 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Sync deployment configuration
+        env:
+          HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          scp -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes \
+            deploy/docker-compose.yml "ubuntu@$HOST:/opt/axiora/docker-compose.yml"
 
       - name: Deploy image to QA
         env:
@@ -47,11 +56,14 @@ jobs:
             set -euo pipefail
             cd /opt/axiora
             # Pin the box to the exact image CI just built.
-            sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${IMAGE_TAG}|" .env
+            test -f .env
+            # Persist both values, including on boxes provisioned before ECR deploys.
+            sed -i '/^IMAGE_TAG=/d; /^ECR_REGISTRY=/d' .env
+            printf '\nIMAGE_TAG=%s\nECR_REGISTRY=%s\n' "${IMAGE_TAG}" "${REGISTRY}" >> .env
             aws ecr get-login-password --region ${REGION} \
               | docker login --username AWS --password-stdin ${REGISTRY}
             docker compose pull api
-            docker compose up -d api
+            docker compose up -d --no-build api
           EOF
 
       - name: Health check

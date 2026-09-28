@@ -2,7 +2,7 @@
 
 services:
   api:
-    build: ./axiora-pulse-be
+    image: ${ECR_REGISTRY:?ECR_REGISTRY must be set}/axiora-pulse-be:${IMAGE_TAG:?IMAGE_TAG must be set}
     env_file: .env
     restart: unless-stopped
     expose: ["8000"]

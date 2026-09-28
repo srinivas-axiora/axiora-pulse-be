@@ -67,12 +67,13 @@ Everything lives in `/opt/axiora`, owned by `ubuntu`:
 ├── Caddyfile               # :80 — SPA + /api reverse proxy
 ├── .env                    # secrets. chmod 600. NOT in git. Hand-maintained.
 ├── dist/                   # built SPA, written by the frontend workflow
-└── axiora-pulse-be/        # backend source, written by the backend workflow
+└── axiora-pulse-be/        # legacy backend source (no longer used for deployment)
 ```
 
-Config files (`docker-compose.yml`, `Caddyfile`) are **not** deployed by CI — they were copied by
-hand and change rarely. The versions in this `deploy/` folder are the source of truth; if you edit
-one, `scp` it to the box and re-run `docker compose up -d`.
+The backend workflow uploads `deploy/docker-compose.yml` on every deployment.
+`Caddyfile` is provisioned separately and is not overwritten by CI.
+The API uses `${ECR_REGISTRY}/axiora-pulse-be:${IMAGE_TAG}`; both values are
+persisted in `/opt/axiora/.env` by the workflow, including on first deployment.
 
 ---
 
@@ -81,9 +82,15 @@ one, `scp` it to the box and re-run `docker compose up -d`.
 Both repos have `.github/workflows/deploy-dev.yml`, triggered on push to `develop` (or manually via
 **Actions → Deploy dev → Run workflow**).
 
-**Backend** (~1.5 min): checkout → write SSH key → `rsync` source to `/opt/axiora/axiora-pulse-be/`
-→ `docker compose up -d --build api` → poll `/health` for up to 150s, dumping container logs if it
-never comes up.
+**Backend**: build once in GitHub Actions, push the immutable `sha-<12-character SHA>`
+image to ECR, upload Compose configuration, persist the registry and image tag,
+log in to ECR on EC2, pull and start the API, then poll `/health`.
+Production promotes an existing QA image and deploys it after the Production approval gate.
+
+Required backend repository variables: `AWS_REGION`, `ECR_REGISTRY` (registry hostname),
+and `AWS_ROLE_ARN` (GitHub OIDC role with ECR push permissions).
+EC2 also needs AWS CLI and an instance role with ECR pull permissions.
+Production additionally requires `PROD_EC2_HOST` and its Production environment configuration.
 
 **Frontend** (~1 min): checkout → `npm ci` → `npm run build` → `rsync dist/` →
 `docker compose up -d caddy` → curl the site.
@@ -139,9 +146,9 @@ $SSH 'cd /opt/axiora && docker compose up -d --force-recreate api'
 $SSH 'cd /opt/axiora && docker compose up -d --force-recreate'
 ```
 
-**Roll back** — revert the commit on `develop` and push. There are no image tags to roll back to;
-the box always runs whatever `develop` last built. If you need a faster escape hatch, add ECR with
-`:sha` tags.
+**Roll back**: production's manual workflow accepts an existing immutable `image_tag`.
+For dev, set `IMAGE_TAG` in `/opt/axiora/.env` to a previous ECR SHA tag, authenticate
+to ECR, then run `docker compose pull api && docker compose up -d --no-build api`.
 
 **Query the dev database**
 ```bash
@@ -173,7 +180,7 @@ $SSH 'cd /opt/axiora && docker compose up -d --force-recreate api'
 | Site loads but every API call 502s | api container down | `docker compose ps`, then check its logs |
 | Site 404s on refresh of a deep link | Caddy `try_files` fallback broken | Check `Caddyfile` is the version in this folder |
 | `.env` edited but nothing changed | Used `restart` instead of `--force-recreate` | See above |
-| Config change deployed but not reflected | `docker-compose.yml` / `Caddyfile` are not deployed by CI | `scp` them manually |
+| Config change deployed but not reflected | `Caddyfile` is provisioned separately | `scp` it manually |
 
 ---
 
@@ -216,7 +223,6 @@ Accepted for a dev box; fix before this pattern goes anywhere near prod.
   role when convenient.
 - **A long-lived SSH private key sits in GitHub secrets.** The better pattern is GitHub OIDC → an
   IAM role → `ssm send-command`, which removes the standing credential entirely.
-- **No image registry**, so no tag-based rollback.
 - **Single instance**, so any deploy is a brief outage and there is no redundancy.
 
 ---
