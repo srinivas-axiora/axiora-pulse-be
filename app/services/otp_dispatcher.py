@@ -69,6 +69,9 @@ async def dispatch_otp(username: str, otp: int) -> OTPResult:
         - The caller decides whether to surface the failure to the client.
     """
     channel = _detect_channel(username)
+    logger.info("==================================================")
+    logger.info("🔑 DEV MODE OTP CODE for %s: %s", username, otp)
+    logger.info("==================================================")
     logger.info("OTP dispatch → channel=%s for identifier=%s", channel, _mask(username))
 
     if channel == "email":
@@ -119,6 +122,9 @@ def _mask(identifier: str) -> str:
 async def dispatch_password_reset_otp(username: str, otp: int) -> OTPResult:
     """Dispatch a 6-digit password reset OTP via the appropriate channel."""
     channel = _detect_channel(username)
+    logger.info("==================================================")
+    logger.info("🔑 DEV MODE OTP CODE for %s: %s", username, otp)
+    logger.info("==================================================")
     logger.info("Password reset OTP dispatch → channel=%s for identifier=%s", channel, _mask(username))
 
     if channel == "email":
@@ -159,6 +165,9 @@ async def dispatch_password_reset_otp(username: str, otp: int) -> OTPResult:
 async def dispatch_login_otp(username: str, otp: int) -> OTPResult:
     """Dispatch a 6-digit login OTP via the appropriate channel."""
     channel = _detect_channel(username)
+    logger.info("==================================================")
+    logger.info("🔑 DEV MODE OTP CODE for %s: %s", username, otp)
+    logger.info("==================================================")
     logger.info("Login OTP dispatch → channel=%s for identifier=%s", channel, _mask(username))
 
     if channel == "email":

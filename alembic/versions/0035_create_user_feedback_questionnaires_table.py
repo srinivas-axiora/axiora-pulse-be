@@ -19,6 +19,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Create user_feedback_questionnaires table."""
+    bind = op.get_bind()
+    is_postgres = bind.dialect.name == "postgresql"
+    json_type = postgresql.JSONB(astext_type=sa.Text()) if is_postgres else sa.JSON()
+    json_default = sa.text("'[]'::jsonb") if is_postgres else sa.text("'[]'")
+
     op.create_table(
         "user_feedback_questionnaires",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
@@ -27,9 +32,9 @@ def upgrade() -> None:
         sa.Column("questionnaire_id", sa.Integer(), nullable=False),
         sa.Column(
             "user_answers",
-            postgresql.JSONB(astext_type=sa.Text()),
+            json_type,
             nullable=False,
-            server_default=sa.text("'[]'::jsonb"),
+            server_default=json_default,
         ),
         sa.Column(
             "submission_date",

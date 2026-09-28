@@ -16,16 +16,30 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_unique_constraint(
-        "uq_workspaces_user_id_name",
-        "workspaces",
-        ["user_id", "name"],
-    )
+    if op.get_bind().dialect.name == "sqlite":
+        with op.batch_alter_table("workspaces") as batch_op:
+            batch_op.create_unique_constraint(
+                "uq_workspaces_user_id_name",
+                ["user_id", "name"],
+            )
+    else:
+        op.create_unique_constraint(
+            "uq_workspaces_user_id_name",
+            "workspaces",
+            ["user_id", "name"],
+        )
 
 
 def downgrade() -> None:
-    op.drop_constraint(
-        "uq_workspaces_user_id_name",
-        "workspaces",
-        type_="unique",
-    )
+    if op.get_bind().dialect.name == "sqlite":
+        with op.batch_alter_table("workspaces") as batch_op:
+            batch_op.drop_constraint(
+                "uq_workspaces_user_id_name",
+                type_="unique",
+            )
+    else:
+        op.drop_constraint(
+            "uq_workspaces_user_id_name",
+            "workspaces",
+            type_="unique",
+        )

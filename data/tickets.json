@@ -1,0 +1,175 @@
+[
+  {
+    "id": "TCK-1003",
+    "userId": "3",
+    "userName": "testuser",
+    "userEmail": "testuser@axiorapulse.com",
+    "category": "Refund Request",
+    "subject": "sdvs",
+    "description": "avava",
+    "attachmentName": null,
+    "priority": "Medium",
+    "status": "Resolved",
+    "createdAt": "2026-09-24T09:09:51.037223+00:00",
+    "updatedAt": "2026-09-28T05:29:56.880650+00:00",
+    "unreadByUser": true,
+    "unreadByAdmin": true,
+    "messages": [
+      {
+        "id": "msg-1790240991037",
+        "senderId": "3",
+        "senderName": "testuser",
+        "senderEmail": "testuser@axiorapulse.com",
+        "senderRole": "user",
+        "message": "avava",
+        "timestamp": "2026-09-24T09:09:51.037223+00:00",
+        "attachmentName": null
+      },
+      {
+        "id": "msg-1790573374132",
+        "senderId": "3",
+        "senderName": "testuser",
+        "senderEmail": "testuser@axiorapulse.com",
+        "senderRole": "user",
+        "message": "issue on payment",
+        "timestamp": "2026-09-28T05:29:34.132805+00:00",
+        "attachmentName": null
+      },
+      {
+        "id": "msg-status-1790573385111",
+        "senderId": "system",
+        "senderName": "System",
+        "senderEmail": "",
+        "senderRole": "admin",
+        "message": "Status changed to Resolved by admin",
+        "timestamp": "2026-09-28T05:29:45.111759+00:00"
+      },
+      {
+        "id": "msg-assign-1790573396880",
+        "senderId": "system",
+        "senderName": "System",
+        "senderEmail": "",
+        "senderRole": "admin",
+        "message": "Ticket assigned to Alex (Lead Dev) by admin",
+        "timestamp": "2026-09-28T05:29:56.880650+00:00"
+      }
+    ],
+    "internalNotes": [],
+    "assignedTo": "Alex (Lead Dev)"
+  },
+  {
+    "id": "TCK-1002",
+    "userId": "3",
+    "userName": "testuser",
+    "userEmail": "testuser@axiorapulse.com",
+    "category": "Refund Request",
+    "subject": "i need refund",
+    "description": "i was changed my plan i don't want the subscription so i need refund of money",
+    "attachmentName": null,
+    "priority": "Medium",
+    "status": "Open",
+    "createdAt": "2026-09-24T05:15:34.099652+00:00",
+    "updatedAt": "2026-09-24T05:16:54.290270+00:00",
+    "unreadByUser": false,
+    "unreadByAdmin": false,
+    "messages": [
+      {
+        "id": "msg-1790226934099",
+        "senderId": "3",
+        "senderName": "testuser",
+        "senderEmail": "testuser@axiorapulse.com",
+        "senderRole": "user",
+        "message": "i was changed my plan i don't want the subscription so i need refund of money",
+        "timestamp": "2026-09-24T05:15:34.099652+00:00",
+        "attachmentName": null
+      },
+      {
+        "id": "msg-1790227014290",
+        "senderId": "1",
+        "senderName": "admin",
+        "senderEmail": "admin@axiorapulse.com",
+        "senderRole": "admin",
+        "message": "I understood your problem shortly our team will contact to you",
+        "timestamp": "2026-09-24T05:16:54.290270+00:00",
+        "attachmentName": null
+      }
+    ],
+    "internalNotes": []
+  },
+  {
+    "id": "TCK-1001",
+    "userId": "user-testuser",
+    "userName": "testuser",
+    "userEmail": "testuser@axiorapulse.com",
+    "category": "Payment Issue",
+    "subject": "i had done payment for pro subscription but it is not redirecting to the page",
+    "description": "i had done payment for pro subscription but it is not redirecting to the page so please solve the promble ASAP",
+    "attachmentName": null,
+    "priority": "Medium",
+    "status": "Closed",
+    "createdAt": "2026-09-23T18:47:27.000Z",
+    "updatedAt": "2026-09-24T05:13:18.499809+00:00",
+    "unreadByUser": true,
+    "unreadByAdmin": false,
+    "messages": [
+      {
+        "id": "msg-1790169447000",
+        "senderId": "user-testuser",
+        "senderName": "testuser",
+        "senderEmail": "testuser@axiorapulse.com",
+        "senderRole": "user",
+        "message": "i had done payment for pro subscription but it is not redirecting to the page so please solve the promble ASAP",
+        "timestamp": "2026-09-23T18:47:27.000Z",
+        "attachmentName": null
+      },
+      {
+        "id": "msg-1790226674546",
+        "senderId": "1",
+        "senderName": "admin",
+        "senderEmail": "admin@axiorapulse.com",
+        "senderRole": "admin",
+        "message": "i understood your problem we will contact to you soon",
+        "timestamp": "2026-09-24T05:11:14.546391+00:00",
+        "attachmentName": null
+      },
+      {
+        "id": "msg-status-1790226706284",
+        "senderId": "system",
+        "senderName": "System",
+        "senderEmail": "",
+        "senderRole": "admin",
+        "message": "Status changed to In Progress by admin",
+        "timestamp": "2026-09-24T05:11:46.284168+00:00"
+      },
+      {
+        "id": "msg-assign-1790226714322",
+        "senderId": "system",
+        "senderName": "System",
+        "senderEmail": "",
+        "senderRole": "admin",
+        "message": "Ticket assigned to Billing Specialist (Marc) by admin",
+        "timestamp": "2026-09-24T05:11:54.322007+00:00"
+      },
+      {
+        "id": "msg-status-1790226761632",
+        "senderId": "system",
+        "senderName": "System",
+        "senderEmail": "",
+        "senderRole": "admin",
+        "message": "Status changed to Resolved by admin",
+        "timestamp": "2026-09-24T05:12:41.632052+00:00"
+      },
+      {
+        "id": "msg-status-1790226798499",
+        "senderId": "system",
+        "senderName": "System",
+        "senderEmail": "",
+        "senderRole": "admin",
+        "message": "Status changed to Closed by admin",
+        "timestamp": "2026-09-24T05:13:18.499809+00:00"
+      }
+    ],
+    "internalNotes": [],
+    "assignedTo": "Billing Specialist (Marc)"
+  }
+]

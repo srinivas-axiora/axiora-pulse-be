@@ -626,15 +626,6 @@ class AuthService:
         # Inactive / suspended accounts must not be able to sign in.
         await _assert_user_active(user, db)
 
-        # Role-based login: the standard /login endpoint is for regular users
-        # (viewer/member only). Admin accounts must use the admin login endpoint.
-        if user.has_role("admin"):
-            logger.warning("Admin user attempted regular login: %s", username)
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Admin accounts must use the admin login endpoint.",
-            )
-
         access_token, refresh_token = await _issue_token_pair(user, db)
 
         from app.services.user_details_service import user_details_service

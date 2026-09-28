@@ -244,6 +244,7 @@ from app.api.v1 import workspace as workspace_router
 from app.api.v1 import surveys as surveys_router
 from app.api.v1 import analytics as analytics_router
 from app.api.v1 import contact as contact_router
+from app.api.v1 import tickets as tickets_router
 from app.api import profile as profile_router
 from app.api import billing as billing_router
 
@@ -260,6 +261,7 @@ app.include_router(workspace_router.router, prefix="/api/v1/workspaces")
 app.include_router(workspace_router.router, prefix="/api/v1/workspace")
 app.include_router(surveys_router.router, prefix="/api/v1")
 app.include_router(analytics_router.router, prefix="/api/v1")
+app.include_router(tickets_router.router, prefix="/api/v1")
 # Public (unauthenticated) landing-page contact form.
 app.include_router(contact_router.router, prefix="/api/v1")
 # These paths intentionally remain unversioned to match the existing SPA contract.
